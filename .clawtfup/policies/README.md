@@ -1,7 +1,7 @@
-**Policies:** `policy_eval.yaml` + `rego/code_edits.rego`.
+**Policies:** `policy_eval.yaml` + `rego/code_edits.rego`. Full project documentation: **[`README.md`](../../README.md)** (repository root).
 
-Rules apply to **changed content** (`combined_after` from the diff), plus optional anchor checks on changed `.py` when `input.policy.enforce_anchor_on_changed_python` is true.
+Rules use **changed hunks** (`combined_after`) and, for many architecture/style checks, **per-file content** under `changed_paths` (`files_after[path]`).
 
-**Categories (see Rego):** unsafe eval/exec, `os.system`, `subprocess` `shell=True`, pickle/marshal, `yaml.load`, `breakpoint`, dynamic `__import__` (warning), bare `except:`, `== None` / `!= None` (warnings), optional anchor line, caller `requirements` fragments.
+**Categories (summary):** security (code execution, SQL/TLS/JWT, cookies/CORS/CSRF, templates, frontend XSS, secrets filenames), layering (routes vs persistence, domain purity, frontend vs DB), design (mutable defaults, imports, error handling), syntax/types (async/TS/Python lint suppressions), formatting (tabs, length, whitespace), and maintainability (TODO, print/input/sleep/assert in app code). Optional **anchor** line and **requirements** fragments when `input.policy` / `input.requirements` say so.
 
-Remediation text: **`.clawtfup/feedback/feedback.yaml`**.
+Remediation text: **`.clawtfup/feedback/feedback.yaml`** (one entry per `code` recommended).

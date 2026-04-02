@@ -3,105 +3,480 @@
 UNSAFE_EVAL:
   severity: error
   title: Arbitrary code execution via eval
-  remediation: >
-    Remove eval(). Prefer literals, ast.literal_eval for safe constants, or explicit parsing.
+  remediation: Remove eval(). Prefer ast.literal_eval for safe constants, parsers, or structured data.
   references:
     - https://docs.python.org/3/library/ast.html#ast.literal_eval
 
 UNSAFE_EXEC:
   severity: error
   title: Arbitrary code execution via exec
-  remediation: Replace exec() with normal functions, imports, or configuration data—not runtime strings.
+  remediation: Replace exec() with imports, functions, or data-driven behavior—not runtime Python strings.
   references:
     - https://docs.python.org/3/library/functions.html#exec
 
 OS_SYSTEM_CALL:
   severity: error
   title: Shell injection risk (os.system)
-  remediation: Use subprocess.run(..., shell=False) with a fixed argument list; never pass user input to the shell.
+  remediation: Use subprocess.run(..., shell=False) with a fixed argv; never pass user-controlled strings to a shell.
   references:
     - https://docs.python.org/3/library/subprocess.html
 
 SUBPROCESS_SHELL_TRUE:
   severity: error
   title: subprocess shell=True
-  remediation: Set shell=False (default). Build argv explicitly; avoid string shells with untrusted input.
+  remediation: Keep shell=False; build argv explicitly. Combine with shlex only on trusted fixed commands.
   references:
     - https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html
 
 UNSAFE_PICKLE:
   severity: error
   title: Unsafe deserialization (pickle.loads)
-  remediation: Do not unpickle untrusted data. Prefer JSON, protobuf, or explicit schemas.
+  remediation: Never unpickle untrusted data. Prefer JSON, protobuf, or explicit schema validation.
   references:
     - https://docs.python.org/3/library/pickle.html
 
 UNSAFE_PICKLE_FILE:
   severity: error
   title: pickle.load on streams
-  remediation: Treat pickle as executable format; only load from fully trusted sources.
+  remediation: Treat pickle as executable; load only from fully trusted, same-trust sources.
   references:
     - https://docs.python.org/3/library/pickle.html
 
 UNSAFE_MARSHAL:
   severity: error
   title: marshal.loads
-  remediation: Do not use marshal for untrusted or cross-trust-boundary data.
+  remediation: Do not use marshal across trust boundaries or for untrusted bytes.
   references:
     - https://docs.python.org/3/library/marshal.html
 
 UNSAFE_YAML_LOAD:
   severity: error
   title: Unsafe YAML (yaml.load)
-  remediation: Use yaml.safe_load (as this project does) or a restricted Loader; never yaml.load on untrusted YAML.
+  remediation: Use yaml.safe_load or a restricted Loader on untrusted YAML.
   references:
     - https://github.com/yaml/pyyaml/wiki/PyYAML-yaml.load(input)-Deprecation
 
 DEBUG_BREAKPOINT:
   severity: error
-  title: breakpoint() left in code
-  remediation: Remove breakpoint() and pdb hooks before commit; rely on tests and logging.
+  title: breakpoint() in change set
+  remediation: Remove breakpoint/pdb before merge; rely on tests, logging, or local debug configs.
   references:
     - https://docs.python.org/3/library/functions.html#breakpoint
 
 DYNAMIC_IMPORT:
   severity: warning
   title: Dynamic __import__
-  remediation: Prefer static imports or importlib.import_module with a fixed module name, not user-controlled strings.
+  remediation: Prefer static imports or importlib.import_module with a non-user-controlled module name.
   references:
     - https://docs.python.org/3/library/importlib.html
+
+SQL_FSTRING_QUERY:
+  severity: error
+  title: SQL built with f-strings
+  remediation: Use bound parameters, ORM queries, or SQL composition APIs that separate data from structure.
+  references:
+    - https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
+
+SQL_FSTRING_EXECUTEMANY:
+  severity: error
+  title: SQL f-string in executemany
+  remediation: Same as SQL injection prevention—parameterize; never interpolate user data into SQL text.
+
+TLS_VERIFY_DISABLED:
+  severity: error
+  title: TLS verification disabled
+  remediation: Keep certificate verification on for outbound HTTP clients in production; fix trust store or proxy CA instead.
+
+JWT_VERIFY_DISABLED:
+  severity: error
+  title: JWT signature verification disabled
+  remediation: Verify signatures and issuer/audience claims; use library defaults that verify unless in a tightly scoped test.
+
+OPEN_REDIRECT_REQUEST:
+  severity: error
+  title: Redirect driven by request data
+  remediation: Allowlist relative paths or known hosts; never redirect to raw user URLs from query/body.
+
+SSTI_RENDER_TEMPLATE_STRING:
+  severity: error
+  title: Server-side template injection risk
+  remediation: Use render_template with static files; never pass request/body strings into render_template_string.
+
+FLASK_DEBUG_ENABLED:
+  severity: error
+  title: Flask debug mode in run()
+  remediation: Gate debug with environment (e.g. FLASK_DEBUG); never ship debug=True in committed entrypoints.
+
+DJANGO_OR_SETTINGS_DEBUG_TRUE:
+  severity: warning
+  title: "DEBUG = True in settings"
+  remediation: Use environment-specific settings modules; default production DEBUG to False.
+
+FLASK_WTF_CSRF_DISABLED:
+  severity: error
+  title: CSRF protection disabled
+  remediation: Keep WTF_CSRF_ENABLED True for cookie-session forms unless you replace it with equivalent tokens.
+
+SESSION_COOKIE_HTTPONLY_OFF:
+  severity: warning
+  title: Session cookie HttpOnly disabled
+  remediation: Keep HttpOnly True so JS cannot read session cookies (XSS mitigation).
+
+SESSION_COOKIE_SECURE_OFF:
+  severity: warning
+  title: Session cookie Secure disabled
+  remediation: Set Secure True when serving over HTTPS so cookies are not sent in clear HTTP.
+
+CORS_ALLOW_ALL_ORIGINS:
+  severity: error
+  title: CORS allow all origins
+  remediation: List explicit origins; avoid * when cookies or credentials are involved.
+
+CORS_ADD_ALL_HEADER:
+  severity: warning
+  title: Access-Control-Allow-Origin wildcard
+  remediation: Echo allowed origin per request or maintain a small allowlist.
+
+DJANGO_CSRF_EXEMPT:
+  severity: warning
+  title: csrf_exempt on a view
+  remediation: Document why; ensure alternative CSRF or token strategy for mutating operations.
+
+HARDCODED_SECRET_MATERIAL:
+  severity: error
+  title: PEM or private key material in diff
+  remediation: Remove from repo; rotate material; load from secret manager or env injection at deploy time.
+
+AWS_ACCESS_KEY_IN_DIFF:
+  severity: error
+  title: AWS access key id pattern
+  remediation: Revoke/rotate the key; use IAM roles, OIDC, or short-lived credentials—not static keys in source.
+
+DOM_INNERHTML_ASSIGN:
+  severity: error
+  title: DOM innerHTML assignment
+  remediation: Use textContent, trusted types, or a vetted sanitizer for HTML from users.
+
+REACT_DANGEROUS_INNER_HTML:
+  severity: error
+  title: dangerouslySetInnerHTML
+  remediation: Only use with a sanitizer output or fully trusted static HTML.
+
+DOCUMENT_WRITE:
+  severity: error
+  title: document.write
+  remediation: Use DOM APIs or framework rendering; document.write breaks streaming and is XSS-prone.
+
+HTML_JAVASCRIPT_URL:
+  severity: error
+  title: "javascript: URL in markup"
+  remediation: >
+    Use real URLs or button handlers; never build javascript: URLs from user input.
+
+HTML_INLINE_EVENT_TEMPLATE:
+  severity: warning
+  title: Inline handler with template interpolation
+  remediation: Bind events in JS/TS and keep data in data-* or JSON with proper escaping.
+
+DJANGO_MARK_SAFE:
+  severity: error
+  title: mark_safe bypasses escaping
+  remediation: Escape by default; if you must mark safe, isolate trusted constants and document why.
+
+JINJA_AUTOESCAPE_DISABLED:
+  severity: error
+  title: Jinja autoescape off
+  remediation: Keep autoescape on; for rare exceptions use explicit filters with trusted input only.
+
+JINJA_SAFE_FILTER:
+  severity: warning
+  title: Jinja |safe
+  remediation: Confirm the value is trusted or sanitized before marking safe.
+
+WEAK_HASH_MD5:
+  severity: warning
+  title: hashlib.md5
+  remediation: Use bcrypt/argon2 for passwords; HMAC-SHA256 + compare_digest for MACs—not MD5.
+
+WEAK_HASH_SHA1_PASSWORD:
+  severity: warning
+  title: SHA-1 near password/secret naming
+  remediation: Prefer modern password hashes (argon2/bcrypt) or strong KDFs.
+
+CHMOD_WORLD_WRITABLE:
+  severity: warning
+  title: chmod 0o777
+  remediation: Use minimal POSIX mode (e.g. 0o750) appropriate to owner/group.
+
+TEMPFILE_MKTEMP:
+  severity: error
+  title: tempfile.mktemp
+  remediation: Use NamedTemporaryFile(delete=False), mkstemp, or tmp_path in tests to avoid races.
+
+SSL_LEGACY_CONTEXT:
+  severity: warning
+  title: Legacy SSL/TLS protocol constant
+  remediation: Use ssl.create_default_context() and current TLS; drop TLSv1/SSLv23-style constants.
+
+URLLIB3_DISABLE_WARNINGS:
+  severity: warning
+  title: urllib3.disable_warnings
+  remediation: Fix TLS trust/hostname issues instead of silencing warnings globally.
+
+HARDCODED_DATABASE_URL:
+  severity: warning
+  title: DATABASE_URL literal
+  remediation: Read connection strings from environment or secret store; commit .env.example only.
+
+ENV_OR_SECRETS_FILE_COMMITTED:
+  severity: error
+  title: .env or env file in version control
+  remediation: Remove from git; add to .gitignore; provide .env.example without secrets.
+
+CREDENTIAL_FILENAME_IN_DIFF:
+  severity: warning
+  title: Credential-like filename changed
+  remediation: Ensure the file is a sample, mock, or public config—not live credentials.
+
+SQL_IN_HTTP_HANDLER_LAYER:
+  severity: warning
+  title: execute() in route/view module
+  remediation: Move persistence behind repositories/services so HTTP handlers stay thin and testable.
+
+SQLITE_IN_FRONTEND_PATH:
+  severity: warning
+  title: SQLite API in frontend path
+  remediation: Keep DB access on the server; use HTTP APIs from browser code.
+
+SUBPROCESS_IN_DOMAIN_LAYER:
+  severity: warning
+  title: subprocess/os.system under domain/
+  remediation: Push shell/process calls to infrastructure/adapters; keep domain logic pure.
+
+HTTP_CLIENT_IN_DOMAIN_LAYER:
+  severity: warning
+  title: requests/httpx import in domain layer
+  remediation: Depend on ports/interfaces in domain; implement HTTP in application or infra modules.
+
+OVERSIZED_MODULE:
+  severity: warning
+  title: Very large source file
+  remediation: Split by feature (routes, services, schemas); aim for reviewable module size.
+
+DEEP_RELATIVE_IMPORT:
+  severity: warning
+  title: Deep relative import (from ..)
+  remediation: Prefer absolute package imports for stable refactoring and tooling.
+
+MUTABLE_DEFAULT_ARGUMENT:
+  severity: error
+  title: Mutable list default argument
+  remediation: >
+    Use None as default and assign a fresh list inside the function (e.g. x = x or []).
+
+MUTABLE_DEFAULT_DICT:
+  severity: error
+  title: Mutable dict default argument
+  remediation: Use None default and assign {} inside the function body.
+
+STAR_IMPORT:
+  severity: warning
+  title: from module import *
+  remediation: Import explicit names to keep namespaces clear and avoid shadowing.
+
+RAISE_GENERIC_EXCEPTION:
+  severity: warning
+  title: raise Exception(...)
+  remediation: Raise specific types (ValueError, HTTPException) with actionable messages.
+
+NOT_IMPLEMENTED_IN_RUNTIME:
+  severity: warning
+  title: NotImplementedError in product path
+  remediation: Complete the behavior, feature-flag, or keep stubs only in tests/experimental branches.
+
+EMPTY_EXCEPT_PASS:
+  severity: warning
+  title: bare except with pass
+  remediation: Catch Exception or specific errors; log, metric, or re-raise.
+
+EMPTY_EXCEPT_EXCEPTION_PASS:
+  severity: warning
+  title: "except Exception: pass"
+  remediation: Narrow exceptions or handle explicitly; silent pass hides regressions.
+
+COMPARE_BOOLEAN_TO_TRUE:
+  severity: warning
+  title: "== True comparison"
+  remediation: >
+    Prefer "if flag" instead of comparing to True (PEP 8).
+
+COMPARE_BOOLEAN_TO_FALSE:
+  severity: warning
+  title: "== False comparison"
+  remediation: >
+    Prefer "if not flag" or "is False" only when identity is required.
+
+USELESS_COMPARISON_LITERAL:
+  severity: warning
+  title: "!= False or similar smell"
+  remediation: >
+    Prefer direct boolean tests and explicit None checks with "is" / "is not".
+
+PYTHON2_STYLE_SUPER:
+  severity: warning
+  title: super(Class, self)
+  remediation: Use zero-argument super() in Python 3.
+
+DEPRECATED_ASYNCIO_COROUTINE:
+  severity: warning
+  title: "@asyncio.coroutine"
+  remediation: Migrate to async def and await.
+
+SETATTR_DYNAMIC_NAME:
+  severity: warning
+  title: setattr with dynamic/request data
+  remediation: Whitelist attribute names or use a dict/schema instead of open setattr.
+
+GLOBAL_STATEMENT:
+  severity: warning
+  title: global keyword
+  remediation: Prefer class attributes, small modules, or dependency injection over mutable globals.
+
+TS_IGNORE:
+  severity: warning
+  title: "@ts-ignore / @ts-nocheck"
+  remediation: >
+    Fix the underlying type error or use a minimal ts-expect-error with a comment.
+
+TS_ESLINT_DISABLE_FILE:
+  severity: warning
+  title: File-level eslint-disable
+  remediation: Scope disables to lines/rules and document rationale.
+
+JS_VAR_DECLARATION:
+  severity: warning
+  title: var declaration
+  remediation: Use const by default; let when rebinding.
+
+PYTHON_TYPE_IGNORE:
+  severity: warning
+  title: "Bare # type: ignore"
+  remediation: >
+    Add mypy error codes on the ignore comment and a one-line reason (narrow suppression).
+
+RUFF_NOQA_FILE:
+  severity: warning
+  title: File-wide ruff noqa
+  remediation: Fix or narrow per-rule noqa comments.
+
+TAB_INDENTATION:
+  severity: warning
+  title: Tab-indented Python
+  remediation: Use 4 spaces per PEP 8; configure editor and formatter.
+
+TRAILING_WHITESPACE:
+  severity: warning
+  title: Trailing whitespace
+  remediation: Strip EOL spaces; enable pre-commit or editor trim.
+
+MULTIPLE_STATEMENTS_SEMICOLON:
+  severity: warning
+  title: Multiple statements per line
+  remediation: One statement per line for clarity and coverage.
+
+BACKSLASH_LINE_CONTINUATION:
+  severity: warning
+  title: Backslash line continuation
+  remediation: Wrap with parentheses/brackets for implicit continuation.
+
+LONG_LINE_OVER_120:
+  severity: warning
+  title: Line exceeds ~120 characters
+  remediation: Wrap calls, strings (implicit concat), or extract variables.
+
+IF_NOT_NONE_ANTIPATTERN:
+  severity: warning
+  title: if not x is None
+  remediation: Write `if x is not None` for readability (PEP 8).
+
+TECH_DEBT_TODO:
+  severity: warning
+  title: TODO/FIXME/HACK/XXX in diff
+  remediation: File a ticket or resolve before merge when policy requires clean diffs.
+
+PRINT_IN_APP_MODULE:
+  severity: warning
+  title: print() in application module
+  remediation: Use logging.getLogger(__name__).info/debug with structured context.
+
+BLOCKING_INPUT_CALL:
+  severity: warning
+  title: input() in non-interactive module
+  remediation: Avoid blocking stdin in servers; use CLI args, forms, or APIs.
+
+TIME_SLEEP_IN_APP:
+  severity: warning
+  title: time.sleep in application code
+  remediation: Prefer scheduling, retries with backoff libraries, or async sleep in async code.
+
+ASSERT_IN_RUNTIME_MODULE:
+  severity: warning
+  title: Module-level or runtime assert
+  remediation: Use explicit validation; asserts can be stripped with -O.
+
+PYLINT_BROAD_DISABLE:
+  severity: warning
+  title: Broad pylint disable
+  remediation: Disable specific messages/symbols only where justified.
+
+ANY_CAST_TYPESCRIPT:
+  severity: warning
+  title: as any cast
+  remediation: Narrow types, use unknown + guards, or generics.
+
+TYPESCRIPT_ANY_TYPE:
+  severity: warning
+  title: Explicit any type
+  remediation: Replace with unknown, generics, or domain types.
+
+REACT_KEY_INDEX:
+  severity: warning
+  title: "key={index}"
+  remediation: Use stable ids from data when list order can change.
 
 BARE_EXCEPT:
   severity: error
   title: Bare except
-  remediation: Catch Exception or specific types; log or re-raise; never silent bare except.
+  remediation: >
+    Catch Exception or specific types; never use a bare except in product code.
   references:
     - https://peps.python.org/pep-0008/#programming-recommendations
 
 COMPARE_NONE:
   severity: warning
-  title: Comparison with None using ==
-  remediation: Use `is None` (PEP 8).
+  title: "== None"
+  remediation: Use `is None`.
   references:
     - https://peps.python.org/pep-0008/#programming-recommendations
 
 COMPARE_NOT_NONE:
   severity: warning
-  title: Comparison with None using !=
+  title: "!= None"
   remediation: Use `is not None`.
   references:
     - https://peps.python.org/pep-0008/#programming-recommendations
 
 MISSING_ANCHOR:
   severity: error
-  title: Policy anchor line missing
-  remediation: Add the exact line `# POLICY_ANCHOR_DO_NOT_REMOVE` on its own line when policy enforces it.
+  title: Policy anchor missing
+  remediation: >
+    Add the POLICY_ANCHOR_DO_NOT_REMOVE line on its own line when enforcement is enabled.
   references: []
 
 MISSING_FRAGMENT:
   severity: error
   title: Required fragment missing
-  remediation: Add the required substring from policy requirements to the changed content.
+  remediation: Include the required substring from policy requirements in the changed content.
   references: []
 
 DISALLOWED_FRAGMENT:

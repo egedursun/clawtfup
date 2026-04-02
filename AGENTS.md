@@ -32,7 +32,3 @@ You are working in a repo that uses **policy-eval** (OPA + `.clawtfup/`). Treat 
 
 - Exit code **0**, JSON with **`"allow": true`** (and no error-level findings).
 - You can summarize what you ran and the outcome in one line in your final message when relevant.
-
-## Reference
-
-Technical contract and flags: [`ARCHITECTURE.md`](ARCHITECTURE.md).

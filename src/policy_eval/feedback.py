@@ -4,7 +4,7 @@ Optional LLM-oriented remediation strings.
 Loaded **only** from ``<workspace>/.clawtfup/feedback/``: all ``*.yaml`` / ``*.yml`` /
 ``*.json`` (sorted by filename; later files override the same violation ``code``).
 
-OPA does not read these files. See ``ARCHITECTURE.md``.
+OPA does not read these files. See the repository ``README.md``.
 """
 
 from __future__ import annotations
