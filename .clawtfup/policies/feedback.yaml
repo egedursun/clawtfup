@@ -1,0 +1,31 @@
+# REFERENCE SAMPLE — optional. Python loads this from YOUR bundle path (--policies),
+# not from a path inside the policy_eval package. OPA never reads this file.
+#
+# Keys MUST match violation "code" strings emitted by YOUR Rego (see rego/*.rego here).
+# Add/remove keys freely when you add new codes. Delete this file if you only want
+# Rego "message" fields with no extra remediation block.
+
+FORBIDDEN_PATTERN:
+  severity: error
+  title: Forbidden pattern in changed content
+  remediation: Remove eval(, exec(, os.system, or subprocess. from the proposed change.
+  references:
+    - https://www.openpolicyagent.org/docs/latest/policy-language/
+
+MISSING_ANCHOR:
+  severity: error
+  title: Policy anchor line missing
+  remediation: Keep the exact line `# POLICY_ANCHOR_DO_NOT_REMOVE` on its own line in governed Python files.
+  references: []
+
+MISSING_FRAGMENT:
+  severity: error
+  title: Required fragment missing
+  remediation: Add the required substring to the changed content so policy requirements are satisfied.
+  references: []
+
+DISALLOWED_FRAGMENT:
+  severity: error
+  title: Disallowed fragment present
+  remediation: Remove the disallowed substring from the proposed change.
+  references: []

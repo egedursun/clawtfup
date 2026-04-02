@@ -1,0 +1,9 @@
+diff --git a/app.py b/app.py
+--- a/app.py
++++ b/app.py
+@@ -1,4 +1,4 @@
+ # POLICY_ANCHOR_DO_NOT_REMOVE
+
+ def greet():
+-    return "hello"
++    return str(eval("1+1"))
