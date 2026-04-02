@@ -1,24 +1,111 @@
-FORBIDDEN_PATTERN:
+# Remediation keyed by Rego violation `code` (OPA does not read this file).
+
+UNSAFE_EVAL:
   severity: error
-  title: Forbidden pattern in changed content
-  remediation: Remove eval(, exec(, os.system, or subprocess. from the proposed change.
+  title: Arbitrary code execution via eval
+  remediation: >
+    Remove eval(). Prefer literals, ast.literal_eval for safe constants, or explicit parsing.
   references:
-    - https://www.openpolicyagent.org/docs/latest/policy-language/
+    - https://docs.python.org/3/library/ast.html#ast.literal_eval
+
+UNSAFE_EXEC:
+  severity: error
+  title: Arbitrary code execution via exec
+  remediation: Replace exec() with normal functions, imports, or configuration data—not runtime strings.
+  references:
+    - https://docs.python.org/3/library/functions.html#exec
+
+OS_SYSTEM_CALL:
+  severity: error
+  title: Shell injection risk (os.system)
+  remediation: Use subprocess.run(..., shell=False) with a fixed argument list; never pass user input to the shell.
+  references:
+    - https://docs.python.org/3/library/subprocess.html
+
+SUBPROCESS_SHELL_TRUE:
+  severity: error
+  title: subprocess shell=True
+  remediation: Set shell=False (default). Build argv explicitly; avoid string shells with untrusted input.
+  references:
+    - https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html
+
+UNSAFE_PICKLE:
+  severity: error
+  title: Unsafe deserialization (pickle.loads)
+  remediation: Do not unpickle untrusted data. Prefer JSON, protobuf, or explicit schemas.
+  references:
+    - https://docs.python.org/3/library/pickle.html
+
+UNSAFE_PICKLE_FILE:
+  severity: error
+  title: pickle.load on streams
+  remediation: Treat pickle as executable format; only load from fully trusted sources.
+  references:
+    - https://docs.python.org/3/library/pickle.html
+
+UNSAFE_MARSHAL:
+  severity: error
+  title: marshal.loads
+  remediation: Do not use marshal for untrusted or cross-trust-boundary data.
+  references:
+    - https://docs.python.org/3/library/marshal.html
+
+UNSAFE_YAML_LOAD:
+  severity: error
+  title: Unsafe YAML (yaml.load)
+  remediation: Use yaml.safe_load (as this project does) or a restricted Loader; never yaml.load on untrusted YAML.
+  references:
+    - https://github.com/yaml/pyyaml/wiki/PyYAML-yaml.load(input)-Deprecation
+
+DEBUG_BREAKPOINT:
+  severity: error
+  title: breakpoint() left in code
+  remediation: Remove breakpoint() and pdb hooks before commit; rely on tests and logging.
+  references:
+    - https://docs.python.org/3/library/functions.html#breakpoint
+
+DYNAMIC_IMPORT:
+  severity: warning
+  title: Dynamic __import__
+  remediation: Prefer static imports or importlib.import_module with a fixed module name, not user-controlled strings.
+  references:
+    - https://docs.python.org/3/library/importlib.html
+
+BARE_EXCEPT:
+  severity: error
+  title: Bare except
+  remediation: Catch Exception or specific types; log or re-raise; never silent bare except.
+  references:
+    - https://peps.python.org/pep-0008/#programming-recommendations
+
+COMPARE_NONE:
+  severity: warning
+  title: Comparison with None using ==
+  remediation: Use `is None` (PEP 8).
+  references:
+    - https://peps.python.org/pep-0008/#programming-recommendations
+
+COMPARE_NOT_NONE:
+  severity: warning
+  title: Comparison with None using !=
+  remediation: Use `is not None`.
+  references:
+    - https://peps.python.org/pep-0008/#programming-recommendations
 
 MISSING_ANCHOR:
   severity: error
   title: Policy anchor line missing
-  remediation: Keep the exact line `# POLICY_ANCHOR_DO_NOT_REMOVE` on its own line in governed Python files.
+  remediation: Add the exact line `# POLICY_ANCHOR_DO_NOT_REMOVE` on its own line when policy enforces it.
   references: []
 
 MISSING_FRAGMENT:
   severity: error
   title: Required fragment missing
-  remediation: Add the required substring to the changed content so policy requirements are satisfied.
+  remediation: Add the required substring from policy requirements to the changed content.
   references: []
 
 DISALLOWED_FRAGMENT:
   severity: error
   title: Disallowed fragment present
-  remediation: Remove the disallowed substring from the proposed change.
+  remediation: Remove the forbidden substring required by policy.
   references: []

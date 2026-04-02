@@ -30,6 +30,6 @@ def test_evaluate_sample_project_detects_eval():
     report = evaluate(opts)
     assert report["allow"] is False
     assert report["findings"]
-    assert report["findings"][0]["code"] == "FORBIDDEN_PATTERN"
+    assert report["findings"][0]["code"] == "UNSAFE_EVAL"
     assert "feedback" in report["findings"][0]
     assert "sample_project" in report["inputs"]["policy_bundle"].replace("\\", "/")

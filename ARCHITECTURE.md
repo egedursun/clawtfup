@@ -27,6 +27,8 @@ Compare a **baseline** tree with **proposed edits** (internally a unified diff, 
 
 Workspace indexing **skips** `.git/` and `.clawtfup/` so policy config is not treated as product source.
 
+**Sample policy themes** (see `rego/code_edits.rego`; all apply to **changed** hunks via `combined_after`): unsafe **eval** (allows `literal_eval`), **exec**, **os.system**, **shell=True**, **pickle** / **marshal**, **yaml.load**, **breakpoint**, **\_\_import\_\_** (warning), bare **`except:`**, **`== None` / `!= None`** (warnings), optional **anchor** on changed `.py` when enabled, plus **requirements** fragments. Pair each `code` with entries under `.clawtfup/feedback/`.
+
 **Fixture for tests:** `tests/fixtures/sample_project/` mirrors this layout.
 
 ## OPA `input` document
@@ -59,7 +61,9 @@ python -m policy_eval evaluate \
   --diff-file tests/fixtures/patches/app_eval.patch
 ```
 
-Flags: `--input-json`, `--query`, `--max-files`, `--max-file-bytes`, `--exclude-glob`, `--no-gitignore`, `--strict`, `--pretty`.
+Flags: `--input-json`, `--query`, `--max-files`, `--max-file-bytes`, `--exclude-glob`, `--no-gitignore`, `--pretty`.
+
+**Exit codes:** by default (**strict**), exit **2** if `allow` is false or any finding has `severity` **error** (JSON is still printed on stdout). **`--no-strict`** forces exit **0** so scripts can parse `allow` / `findings` without a failing process. The hidden **`--strict`** flag is accepted as a no-op for older invocations.
 
 ## Python API
 

@@ -88,9 +88,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Do not apply .gitignore rules when indexing.",
     )
     ev.add_argument(
+        "--no-strict",
+        action="store_true",
+        help="Exit 0 even when allow is false or there are error-severity findings (default: strict).",
+    )
+    ev.add_argument(
         "--strict",
         action="store_true",
-        help="Exit 2 if allow is false or any error-severity finding.",
+        help=argparse.SUPPRESS,
     )
     ev.add_argument(
         "--pretty",
@@ -173,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
     indent = 2 if args.pretty else None
     print(json.dumps(report, indent=indent))
 
-    if args.strict:
+    if not args.no_strict:
         if report.get("allow") is False:
             return 2
         for f in report.get("findings") or []:

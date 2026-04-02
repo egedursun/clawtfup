@@ -71,11 +71,11 @@ def test_defaults_git_diff_head(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
     )
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == 2, proc.stderr
     report = json.loads(proc.stdout)
     assert report["inputs"]["change_source"] == "git_head"
     assert report["allow"] is False
-    assert report["findings"][0]["code"] == "FORBIDDEN_PATTERN"
+    assert report["findings"][0]["code"] == "UNSAFE_EVAL"
 
 
 def test_cli_help_no_policies_flag(tmp_path: Path) -> None:
@@ -86,4 +86,5 @@ def test_cli_help_no_policies_flag(tmp_path: Path) -> None:
     )
     assert proc.returncode == 0
     assert "--diff-file" in proc.stdout
+    assert "--no-strict" in proc.stdout
     assert "--policies" not in proc.stdout
