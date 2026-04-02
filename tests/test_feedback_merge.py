@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from policy_eval.feedback import load_combined_feedback, load_feedback_dir
+from policy_eval.feedback import load_feedback_dir, load_workspace_feedback
 
 
 def test_load_feedback_dir_merges_sorted_files(tmp_path: Path) -> None:
@@ -12,14 +12,9 @@ def test_load_feedback_dir_merges_sorted_files(tmp_path: Path) -> None:
     assert m["X"]["title"] == "second"
 
 
-def test_load_combined_feedback_clawtfup_overrides_bundle(tmp_path: Path) -> None:
-    bundle = tmp_path / "policies"
-    bundle.mkdir()
-    (bundle / "feedback.yaml").write_text(
-        "CODE: {title: from_bundle}\n", encoding="utf-8"
-    )
+def test_load_workspace_feedback_from_clawtfup(tmp_path: Path) -> None:
     claw = tmp_path / ".clawtfup" / "feedback"
     claw.mkdir(parents=True)
-    (claw / "local.yaml").write_text("CODE: {title: from_claw}\n", encoding="utf-8")
-    m = load_combined_feedback(bundle, tmp_path)
-    assert m["CODE"]["title"] == "from_claw"
+    (claw / "x.yaml").write_text("CODE: {title: from_workspace}\n", encoding="utf-8")
+    m = load_workspace_feedback(tmp_path)
+    assert m["CODE"]["title"] == "from_workspace"

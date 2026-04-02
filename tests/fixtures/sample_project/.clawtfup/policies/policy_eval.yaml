@@ -1,4 +1,4 @@
-# OPA queries for this workspace (.clawtfup/policies/).
+# Manifest for tests and local `.clawtfup/policies/` layout.
 
 queries:
   - data.code_edits.report

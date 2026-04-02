@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .exceptions import ManifestError, OpaEngineError, PatchApplyError, PolicyEvalError
-from .feedback import enrich_finding, load_combined_feedback
+from .feedback import enrich_finding, load_workspace_feedback
 from .findings_normalize import normalize_from_report_value, summarize_severities
 from .input_merge import deep_merge
 from .manifest import (
@@ -35,7 +35,7 @@ def opa_bundle_dir(bundle_root: Path) -> Path:
 @dataclass
 class EvaluateOptions:
     workspace: Path
-    bundle_root: Path
+    bundle_root: Path  #: Policies root: ``<workspace>/.clawtfup/policies`` (``policy_eval.yaml`` + ``rego/``)
     patch_text: str
     input_overlay: dict[str, Any] | None = None
     input_json_path: Path | None = None
@@ -171,7 +171,7 @@ def evaluate(opts: EvaluateOptions) -> dict[str, Any]:
         e["query"] == findings_query for e in query_errors
     ):
         allow, raw_findings = normalize_from_report_value(results[findings_query])
-        fb_map = load_combined_feedback(bundle_root, opts.workspace)
+        fb_map = load_workspace_feedback(opts.workspace)
         findings = [enrich_finding(f, fb_map) for f in raw_findings]
     elif findings_query and findings_query not in results:
         pass

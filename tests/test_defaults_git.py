@@ -24,13 +24,9 @@ def _opa_available() -> bool:
 @pytest.mark.skipif(not _opa_available(), reason="OPA not installed")
 def test_defaults_git_diff_head(tmp_path: Path) -> None:
     root = Path(__file__).resolve().parent
-    ref = root.parent / "bundles" / "reference"
-    policies = tmp_path / ".clawtfup" / "policies"
-    policies.mkdir(parents=True)
-    shutil.copytree(ref / "rego", policies / "rego")
-    shutil.copy2(ref / "policy_eval.yaml", policies / "policy_eval.yaml")
-    shutil.copy2(ref / "feedback.yaml", policies / "feedback.yaml")
-    shutil.copy2(root / "fixtures" / "ws" / "app.py", tmp_path / "app.py")
+    src = root / "fixtures" / "sample_project"
+    shutil.copytree(src / ".clawtfup", tmp_path / ".clawtfup")
+    shutil.copy2(src / "app.py", tmp_path / "app.py")
 
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
@@ -82,8 +78,7 @@ def test_defaults_git_diff_head(tmp_path: Path) -> None:
     assert report["findings"][0]["code"] == "FORBIDDEN_PATTERN"
 
 
-def test_cli_accepts_deprecated_patch_flag(tmp_path: Path) -> None:
-    """Smoke: --patch still works (stderr deprecation)."""
+def test_cli_help_no_policies_flag(tmp_path: Path) -> None:
     proc = subprocess.run(
         [sys.executable, "-m", "policy_eval", "evaluate", "--help"],
         capture_output=True,
@@ -91,3 +86,4 @@ def test_cli_accepts_deprecated_patch_flag(tmp_path: Path) -> None:
     )
     assert proc.returncode == 0
     assert "--diff-file" in proc.stdout
+    assert "--policies" not in proc.stdout

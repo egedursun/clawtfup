@@ -15,15 +15,14 @@ def _opa_available() -> bool:
 
 
 @pytest.mark.skipif(not _opa_available(), reason="OPA not installed")
-def test_evaluate_reference_bundle_detects_eval():
+def test_evaluate_sample_project_detects_eval():
     root = Path(__file__).resolve().parent
-    repo = root.parent
-    ws = root / "fixtures" / "ws"
-    bundle = repo / "bundles" / "reference"
+    sample = root / "fixtures" / "sample_project"
+    policies = sample / ".clawtfup" / "policies"
     patch = (root / "fixtures" / "patches" / "app_eval.patch").read_text(encoding="utf-8")
     opts = EvaluateOptions(
-        workspace=ws,
-        bundle_root=bundle,
+        workspace=sample,
+        bundle_root=policies,
         patch_text=patch,
         use_gitignore=False,
         change_source="diff_file",
@@ -33,4 +32,4 @@ def test_evaluate_reference_bundle_detects_eval():
     assert report["findings"]
     assert report["findings"][0]["code"] == "FORBIDDEN_PATTERN"
     assert "feedback" in report["findings"][0]
-    assert "bundles/reference" in report["inputs"]["policy_bundle"].replace("\\", "/")
+    assert "sample_project" in report["inputs"]["policy_bundle"].replace("\\", "/")

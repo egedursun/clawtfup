@@ -1,5 +1,4 @@
-# REFERENCE SAMPLE Rego — replace with your organization's packages/rules.
-# Expected input shape is documented in repository ARCHITECTURE.md (workspace, change, …).
+# Rego for this workspace — input shape: ARCHITECTURE.md (workspace, change, …).
 
 package code_edits
 

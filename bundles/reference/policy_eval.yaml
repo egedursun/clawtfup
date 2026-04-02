@@ -1,9 +1,0 @@
-# REFERENCE SAMPLE — not wired into the Python source. Copy this tree or point
-# --policies at your own bundle directory in CI/production.
-#
-# queries: OPA expressions evaluated against merged input (workspace + patch + overlay).
-# findings_query: optional; if set, that query's value may populate report.findings + allow.
-
-queries:
-  - data.code_edits.report
-findings_query: data.code_edits.report

@@ -19,9 +19,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="policy-eval",
         description=(
-            "Evaluate proposed code changes against OPA policies. "
-            "Defaults: workspace = cwd, policies = .clawtfup/policies/, "
-            "changes = git diff HEAD (or pass --diff-file)."
+            "Evaluate proposed code changes against OPA policies in "
+            "<workspace>/.clawtfup/policies/. Proposed edits: git diff HEAD "
+            "(excludes .clawtfup/) or --diff-file."
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -31,16 +31,7 @@ def main(argv: list[str] | None = None) -> int:
         "--workspace",
         type=Path,
         default=None,
-        help="Project root to index (default: current directory).",
-    )
-    ev.add_argument(
-        "--policies",
-        type=Path,
-        default=None,
-        help=(
-            "Policy bundle root: policy_eval.yaml, optional feedback.yaml, rego/. "
-            "Default: <workspace>/.clawtfup/policies/"
-        ),
+        help="Project root to index (default: current directory). Policies: <workspace>/.clawtfup/policies/",
     )
     ev.add_argument(
         "--diff-file",
@@ -113,15 +104,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     workspace = (args.workspace or Path.cwd()).resolve()
-    policies = (args.policies or default_policies_dir(workspace)).resolve()
+    policies = default_policies_dir(workspace).resolve()
 
     if not policies.is_dir():
         print(
             json.dumps(
                 {
                     "error": (
-                        f"policy bundle directory not found: {policies}. "
-                        "Add .clawtfup/policies/ with policy_eval.yaml and rego/, or pass --policies."
+                        f"policies directory not found: {policies}. "
+                        "Create .clawtfup/policies/ with policy_eval.yaml and rego/."
                     )
                 }
             ),
