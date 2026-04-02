@@ -13,10 +13,9 @@
 [![OPA](https://img.shields.io/badge/policy-OPA-0f172a?style=flat-square&logo=openpolicyagent&logoColor=white)](https://www.openpolicyagent.org/)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-hook_ready-0f172a?style=flat-square&logo=anthropic&logoColor=white)](https://claude.ai/code)
 
-**Workspace in. Unified diff in. JSON verdict out.**
+**Your LLM agent cannot ship a policy violation. Not accidentally. Not silently. Not ever.**
 
-OPA evaluates your full tree plus proposed edits—your Rego, your feedback copy, one stdout report.
-Wire it as a post-hook on any agent turn and your LLM never ships a policy violation silently again.
+clawtfup intercepts every agent turn — after the model proposes edits, before anything touches disk — and enforces your Rego policies against the full workspace. A violation blocks the turn cold. The agent receives the finding and its remediation, fixes the code, and tries again. You define the rules once. clawtfup holds the line on every single turn, automatically.
 
 [AGENTS.md](AGENTS.md) · [Bundled policies](.clawtfup/policies/README.md)
 
@@ -26,16 +25,24 @@ Wire it as a post-hook on any agent turn and your LLM never ships a policy viola
 
 ## Why clawtfup
 
-LLM agents and REPL tools (Claude Code, Cursor, Aider, custom runners) are fast—but they have no intrinsic awareness of your repo's architectural layering rules, security invariants, or syntactic constraints. They'll generate code that works in isolation and silently violates the conventions that hold your codebase together.
+Every linter, formatter, and code review bot you've ever used has the same fundamental flaw: they run *after* the code already exists. They advise. They warn. They flag. But the code ships anyway — because nothing is actually stopping it.
 
-**clawtfup** is the hook layer that closes that gap. You define policy once in Rego; the tool enforces it on every agent turn:
+LLM agents make this problem an order of magnitude worse. They're fast, autonomous, and confident. They generate code that compiles, passes tests, and *looks* right — while silently violating the architectural layering, security invariants, and syntactic constraints that hold your codebase together. By the time a human or a CI gate catches it, the damage is done: a bad pattern is in the tree, possibly replicated across dozens of files in the same session.
 
-- **Semantic constraints** — e.g. no DB queries in view layers, no circular imports across bounded contexts
-- **Security invariants** — e.g. no unchecked dynamic code execution, no pickle, no raw SQL f-strings, no TLS verify disabled
-- **Syntactic rules** — e.g. Python 2 syntax leakage, mutable default arguments, dangerous patterns
-- **Your own rules** — `.clawtfup/policies/rego/*.rego` is yours; write any constraint OPA can express
+**clawtfup is the first tool that enforces policy at the agent decision layer — not after the fact, but at the exact moment the agent proposes a change.**
 
-The feedback loop is tight: exit **2** hands findings back to the agent with remediation text so the next turn knows exactly what to fix, not just that something failed.
+It wires into the agent's hook protocol as a **post-LLM / pre-apply gate**. When the model finishes a turn and proposes a set of edits, clawtfup evaluates the full proposed workspace state against your OPA policy bundle before a single byte lands on disk. If the proposal violates policy, the turn is **blocked** — not warned, not flagged for later review, **blocked**. The agent receives the exact finding and its remediation text, corrects the code, and the cycle repeats until the workspace is clean. The agent cannot advance past a violation.
+
+This changes the guarantee entirely. You're no longer hoping your policies get caught in review. You're enforcing them as a hard invariant on every agent action, in real time.
+
+Write your rules once in Rego. Every subsequent agent turn — across every file, every session, every developer on your team — is evaluated against them automatically:
+
+- **Security invariants** — SQL injection via f-strings, unchecked dynamic code execution, TLS verify disabled, secrets in source, CSRF, pickle, unsafe YAML deserialization
+- **Architectural constraints** — no database calls in view layers, no circular imports across bounded contexts
+- **Syntactic hygiene** — Python 2 leakage, mutable default arguments, bare `except: pass`, dangerous anti-patterns
+- **Your own rules** — `.clawtfup/policies/rego/*.rego` is yours; if OPA can express it, clawtfup can enforce it
+
+The feedback loop is designed for autonomy: exit **2** returns structured findings with `code`, `message`, and `remediation` text so the agent knows exactly what to fix and how — not just that something failed.
 
 ---
 
