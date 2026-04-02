@@ -6,7 +6,7 @@ The **`policy_eval` Python package** only:
 
 1. Indexes the workspace (excluding `.git/` and `.clawtfup/`), applies **proposed edits** as a unified diff (default source: `git diff HEAD` in the CLI), merges `--input-json` into OPA’s `input`.
 2. Runs `opa eval` for each query in **your** `policy_eval.yaml` (or `--query`).
-3. Enriches `findings[]` from **your** feedback files: optional `feedback.yaml` in the bundle root, plus optional **`<workspace>/.clawtfup/feedback/*`**.
+3. Enriches `findings[]` from **your** feedback files: under the default layout, **`<workspace>/.clawtfup/feedback/*`**; if you use a custom `--policies` path, an optional **`feedback.yaml`** next to the manifest is also loaded (then merged with `.clawtfup/feedback/`, which wins on duplicate codes).
 
 It does **not** ship secret rules inside the wheel. **All policy text lives in paths you control.**
 
@@ -16,8 +16,8 @@ It does **not** ship secret rules inside the wheel. **All policy text lives in p
 
 From the project root:
 
-- **Policies (bundle root):** `.clawtfup/policies/` — put `policy_eval.yaml` and `rego/` here (and optional `feedback.yaml`).
-- **Extra feedback:** `.clawtfup/feedback/` — any number of `.yaml` / `.yml` / `.json` files (sorted by name; later files override the same violation `code`).
+- **Policies:** `.clawtfup/policies/` — **`policy_eval.yaml` + `rego/` only** (OPA bundle root). No feedback files here by default.
+- **Feedback:** `.clawtfup/feedback/` — remediation YAML/JSON (`*.yaml`, `*.yml`, `*.json`; sorted by name; later overrides same `code`).
 
 Then run **`policy-eval evaluate`** — workspace = cwd, policies = `.clawtfup/policies/`, proposed changes = **`git diff HEAD`**.
 
@@ -27,7 +27,7 @@ Then run **`policy-eval evaluate`** — workspace = cwd, policies = `.clawtfup/p
 
 - All `.rego` files.
 - `policy_eval.yaml`.
-- `feedback.yaml` in the bundle, and/or files under `.clawtfup/feedback/`.
+- Files under `.clawtfup/feedback/`, and/or (if you use another `--policies` path) `feedback.yaml` beside that manifest.
 
 Override the bundle path with `--policies` when not using the default.
 

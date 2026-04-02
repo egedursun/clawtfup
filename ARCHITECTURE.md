@@ -5,7 +5,7 @@
 | Layer | What it is | Can you replace it without editing this repo? |
 |-------|------------|-----------------------------------------------|
 | **`policy_eval` (Python package)** | Indexes workspace, applies **proposed edits** (unified diff), merges `input`, runs `opa eval`, optional feedback enrichment. | You only **install** it (`pip install` / wheel). Policy text is **not** inside it. |
-| **Policy bundle** | Directory with `policy_eval.yaml`, `rego/`, optional `feedback.*`. **Default:** `<workspace>/.clawtfup/policies/`. | **Yes.** Or pass `--policies` to any path. |
+| **Policy bundle** | Directory with `policy_eval.yaml`, `rego/`. **Default:** `<workspace>/.clawtfup/policies/`. Feedback defaults to **`<workspace>/.clawtfup/feedback/`**. | **Yes.** Or pass `--policies` to any path. |
 
 **Authoritative contract for bundles:** **[`BUNDLE.md`](BUNDLE.md)**.
 
@@ -24,8 +24,8 @@ From the project root:
 
 | Path | Role |
 |------|------|
-| `.clawtfup/policies/` | Bundle: `policy_eval.yaml`, `rego/`, optional `feedback.yaml` |
-| `.clawtfup/feedback/` | Optional extra remediation YAML/JSON (merged; overrides bundle on same violation `code`) |
+| `.clawtfup/policies/` | **`policy_eval.yaml` + `rego/`** (policies only) |
+| `.clawtfup/feedback/` | **Remediation** YAML/JSON (merged; if you also use `feedback.yaml` under a custom `--policies` path, this dir wins on same `code`) |
 
 Workspace index **skips** `.git/` and `.clawtfup/` so repos and policy config are not fed as product source text.
 
@@ -34,7 +34,7 @@ Workspace index **skips** `.git/` and `.clawtfup/` so repos and policy config ar
 | Path | Role |
 |------|------|
 | [`bundles/reference/README.md`](bundles/reference/README.md) | Explains the sample. |
-| [`bundles/reference/`](bundles/reference/) | Copy into `.clawtfup/policies/` to try locally. |
+| [`bundles/reference/`](bundles/reference/) | Template: copy **`policy_eval.yaml` + `rego/`** into `.clawtfup/policies/`, **`feedback.yaml`** into `.clawtfup/feedback/`. |
 
 ## OPA `input` document
 
@@ -80,13 +80,15 @@ python -m policy_eval evaluate \
 
 Flags: `--input-json`, `--query` (repeat), `--max-files`, `--max-file-bytes`, `--exclude-glob`, `--no-gitignore`, `--strict`, `--pretty`.
 
-## Library conventions (under `--policies` / `.clawtfup/policies`)
+## Library conventions
+
+**Under `--policies` (default `.clawtfup/policies/`):**
 
 - `policy_eval.yaml` / `policy_eval.yml` — manifest.
-- `feedback.yaml` / `.yml` / `.json` — optional; bundle-level enrichment.
 - `rego/` — if present, used as `opa eval -d` directory.
+- Optional `feedback.yaml` / `.yml` / `.json` — only when you keep feedback beside a **custom** bundle path; default layout puts feedback under **`.clawtfup/feedback/`** instead.
 
-Additional feedback: **`.clawtfup/feedback/*.yaml`** (and `.yml` / `.json`).
+**Under `<workspace>/.clawtfup/feedback/`:** any `*.yaml` / `*.yml` / `.json` (merged; overrides bundle `feedback.*` on the same violation `code`).
 
 ## Tests
 

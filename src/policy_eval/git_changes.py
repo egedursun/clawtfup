@@ -32,8 +32,9 @@ def git_diff_head(workspace: Path) -> str:
             "No diff file given: expected a git repo here to run `git diff HEAD`, "
             "or pass --diff-file / stdin with a unified diff of your proposed edits."
         )
+    # Exclude `.clawtfup/` — those paths are not in the workspace index (policies/feedback are separate).
     proc = subprocess.run(
-        [git, "-C", ws, "diff", "HEAD"],
+        [git, "-C", ws, "diff", "HEAD", "--", ".", ":(exclude).clawtfup"],
         capture_output=True,
         text=True,
     )

@@ -1,9 +1,6 @@
-# REFERENCE SAMPLE — optional. Python loads this from YOUR bundle path (--policies),
-# not from a path inside the policy_eval package. OPA never reads this file.
-#
-# Keys MUST match violation "code" strings emitted by YOUR Rego (see rego/*.rego here).
-# Add/remove keys freely when you add new codes. Delete this file if you only want
-# Rego "message" fields with no extra remediation block.
+# Remediation copy for findings[].code — loaded from .clawtfup/feedback/ (not from policies/).
+# Keys MUST match violation "code" strings from your Rego under .clawtfup/policies/rego/.
+# OPA never reads this file.
 
 FORBIDDEN_PATTERN:
   severity: error

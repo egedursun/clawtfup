@@ -3,9 +3,10 @@ Optional LLM-oriented remediation strings.
 
 Loads from:
 
-1. The policy bundle root: ``feedback.yaml`` / ``feedback.yml`` / ``feedback.json`` (optional).
-2. ``<workspace>/.clawtfup/feedback/``: all ``*.yaml`` / ``*.yml`` / ``*.json`` in that folder
-   (sorted by name; later files override keys). Same-code entries here override the bundle file.
+1. Policy bundle root (``--policies``): optional ``feedback.yaml`` / ``.yml`` / ``.json``.
+2. ``<workspace>/.clawtfup/feedback/``: all ``*.yaml`` / ``*.yml`` / ``*.json`` merged on top (sorted by name; later files override keys). **Same violation ``code`` → entry from here wins.**
+
+Default layout: remediation under ``.clawtfup/feedback/`` only; bundle root = manifest + Rego.
 
 OPA does not read these files.
 
