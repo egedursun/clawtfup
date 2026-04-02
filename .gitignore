@@ -7,3 +7,4 @@ venv/
 *.egg-info/
 .env
 tools/opa
+tests/fixtures/patches/

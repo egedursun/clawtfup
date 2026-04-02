@@ -28,7 +28,8 @@ def test_evaluate_sample_project_detects_eval():
         change_source="diff_file",
     )
     report = evaluate(opts)
-    assert report["allow"] is False
+    assert report["inputs"]["scan_mode"] == "full_tree"
+    assert not report["allow"]
     assert report["findings"]
     assert report["findings"][0]["code"] == "UNSAFE_EVAL"
     assert "feedback" in report["findings"][0]

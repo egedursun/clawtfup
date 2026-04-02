@@ -11,7 +11,7 @@ def test_normalize_report_dict():
             ],
         }
     )
-    assert allow is False
+    assert not allow
     assert len(findings) == 2
     assert findings[0]["code"] == "X"
     assert findings[1]["code"] == "POLICY_VIOLATION"

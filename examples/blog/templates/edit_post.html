@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Edit: {{ post.title }}{% endblock %}
+{% block content %}
+<h1>Edit Post</h1>
+<form method="POST" action="{{ url_for('posts.edit_post', slug=post.slug) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+        <label for="title">Title</label><br>
+        <input type="text" id="title" name="title" value="{{ post.title }}" required>
+    </div>
+    <div>
+        <label for="summary">Summary (optional)</label><br>
+        <input type="text" id="summary" name="summary" value="{{ post.summary or '' }}" maxlength="500">
+    </div>
+    <div>
+        <label for="body">Body</label><br>
+        <textarea id="body" name="body" rows="15" required>{{ post.body }}</textarea>
+    </div>
+    <button type="submit">Save Changes</button>
+</form>
+<a href="{{ url_for('posts.detail', slug=post.slug) }}">Cancel</a>
+{% endblock %}

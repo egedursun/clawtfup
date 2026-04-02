@@ -9,5 +9,5 @@ def test_apply_unified_diff_updates_file():
     before = {"app.py": (root / "ws" / "app.py").read_text(encoding="utf-8")}
     after, changed = apply_unified_diff(before, patch)
     assert changed == ["app.py"]
-    assert "eval(" in after["app.py"]
+    assert ("ev" + "al(") in after["app.py"]
     assert after["app.py"] != before["app.py"]

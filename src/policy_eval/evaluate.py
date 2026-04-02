@@ -49,6 +49,11 @@ class EvaluateOptions:
     change_source: str | None = None
     #: When True, index ``HEAD`` (+ untracked) so a ``git diff HEAD`` applies to the right baseline.
     index_from_git_head: bool = False
+    #: When True (default), every indexed file is treated as changed (full-tree policy scan).
+    #: Set False with CLI ``--diff-only`` to scope policies to git diff / ``--diff-file`` paths only.
+    full_scan: bool = True
+    #: If set, only these paths (prefix match, posix) are treated as changed during a full scan.
+    scan_prefix: str | None = None
 
 
 def _load_overlay_path(path: Path | None) -> dict[str, Any]:
@@ -79,6 +84,8 @@ def build_workspace_fragment(
     exclude_globs: list[str],
     use_gitignore: bool,
     index_from_git_head: bool = False,
+    full_scan: bool = True,
+    scan_prefix: str | None = None,
 ) -> tuple[dict[str, Any], WorkspaceIndexResult]:
     if index_from_git_head:
         idx = index_at_git_head(
@@ -100,6 +107,15 @@ def build_workspace_fragment(
         files_after, changed_paths = apply_unified_diff(idx.files, patch_text)
     except PatchApplyError:
         raise
+    if scan_prefix is not None:
+        pfx = scan_prefix.strip().replace("\\", "/").strip("/")
+        changed_paths = sorted(
+            path
+            for path in files_after
+            if path == pfx or path.startswith(f"{pfx}/")
+        )
+    elif full_scan:
+        changed_paths = sorted(files_after.keys())
     combined = combined_changed_content(files_after, changed_paths)
     fragment = {
         "workspace": {
@@ -140,6 +156,8 @@ def evaluate(opts: EvaluateOptions) -> dict[str, Any]:
         exclude_globs=opts.exclude_globs,
         use_gitignore=opts.use_gitignore,
         index_from_git_head=opts.index_from_git_head,
+        full_scan=opts.full_scan,
+        scan_prefix=opts.scan_prefix,
     )
 
     # OPA -i document root is Rego's `input`
@@ -195,6 +213,12 @@ def evaluate(opts: EvaluateOptions) -> dict[str, Any]:
             "opa_data_dir": str(opa_dir),
             "changed_paths": merged_input["workspace"]["changed_paths"],
             "change_source": opts.change_source,
+            "scan_mode": (
+                "prefix"
+                if opts.scan_prefix
+                else ("full_tree" if opts.full_scan else "diff_only")
+            ),
+            "scan_prefix": opts.scan_prefix,
             "index_baseline": "git_head" if opts.index_from_git_head else "working_tree",
             "patch_stats": {
                 "bytes": len(opts.patch_text.encode("utf-8")),

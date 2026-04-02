@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}New Post{% endblock %}
+{% block content %}
+<h1>New Post</h1>
+<form method="POST" action="{{ url_for('posts.new_post') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+        <label for="title">Title</label><br>
+        <input type="text" id="title" name="title" required>
+    </div>
+    <div>
+        <label for="summary">Summary (optional)</label><br>
+        <input type="text" id="summary" name="summary" maxlength="500">
+    </div>
+    <div>
+        <label for="body">Body</label><br>
+        <textarea id="body" name="body" rows="15" required></textarea>
+    </div>
+    <fieldset>
+        <legend>References (optional)</legend>
+        {% for i in range(3) %}
+        <div>
+            <input type="text" name="ref_title" placeholder="Title">
+            <input type="url" name="ref_url" placeholder="https://...">
+        </div>
+        {% endfor %}
+    </fieldset>
+    <button type="submit">Publish</button>
+</form>
+{% endblock %}

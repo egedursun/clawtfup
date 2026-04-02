@@ -1,131 +1,130 @@
-# policy-eval
+<div align="center">
 
-**OPA-backed evaluation of proposed code changes** against Rego policies and workspace-local remediation text. Compare a baseline tree with a unified diff (for example `git diff HEAD`), run Open Policy Agent, and get a single JSON report suitable for CI, humans, or agent loops.
+<a href="logo.png"><img src="logo.png" alt="clawtfup — the policy gate with claws" width="300" /></a>
 
-The Python package ships **without** your organization’s rules. You add **`.clawtfup/policies/`** (manifest + Rego) and **`.clawtfup/feedback/`** (YAML/JSON keyed by violation `code`) per repository or workspace.
+### **clawtfup**
+
+#### *Open claws. Closed loopholes.*
+
+**The diff walks in. OPA decides if it walks out.**
+Your workspace, your Rego, one JSON verdict—no `eval` in prod unless you *like* talking to security.
+
+<sub>Preview won’t show the art? The file is literally <code>logo.png</code> next to this README—open it from the repo root.</sub>
+
+</div>
 
 ---
 
-## Requirements
+### Who this is for
 
-| Component | Notes |
-|-----------|--------|
-| **Python** | 3.11+ |
-| **OPA** | On `PATH`, or place a binary at **`tools/opa`** (see [OPA releases](https://github.com/open-policy-agent/opa/releases)) |
-| **Git** | Optional for default `git diff HEAD` workflow |
+**Bots first.** Humans welcome, but this doc is written so an LLM knows *exactly* what to run, what comes back, and what *not* to weasel out of. For the stricter house rules in *this* repo, see [`AGENTS.md`](AGENTS.md).
 
 ---
 
-## Installation
+### The one-liner (what it does)
 
-From the repository root (or install the published package the same way once released):
+`clawtfup` is a tiny harness: index the tree, slap on `git diff HEAD` (`.clawtfup/` kept out of the patch text), hand the bundle to **OPA**, merge in your **`.clawtfup/policies/`** Rego, sweeten failures with **`.clawtfup/feedback/`** copy. **Default is a full-tree stare-down**—we’re not only judging the lines you touched; we’re judging the whole party you checked in.
+
+- **CLI:** `clawtfup`
+- **Python import:** `policy_eval`
+- **Same thing, different shell:** `python -m policy_eval evaluate …`
+- **No REST API.** This isn’t a microservice; it’s a bouncer.
+
+---
+
+### The ritual (agents: you actually have to do this)
+
+1. From the **project root** (or `--workspace` that root):
+
+   ```bash
+   clawtfup evaluate --pretty
+   ```
+
+   No `clawtfup` on PATH? `pip install -e .` then `python -m policy_eval evaluate --pretty`. Still stuck? Install OPA or drop `tools/opa`—we’re not psychic.
+
+2. **Stdout = one JSON object.** Always. Even when you’re in trouble. Stderr is for humans and grumpy stack traces.
+
+3. **You’re only done when:** exit **0**, `"allow": true`, and zero findings with `"severity": "error"`. Anything else is “back to the editor, friend.”
+
+4. **`findings[]` is your to-do list.** Read `code`, `message`, and `feedback.remediation` if present. Fix **product code**. Do **not** “fix” policy by nerfing `.clawtfup/` unless the **user** said so—that’s not clever, that’s cosplay.
+
+5. **`--no-strict`** is for humans who want exit 0 while reading a train wreck. **Agents:** pretend that flag doesn’t exist unless the human typed the words.
+
+6. **Need a smaller arena?** `--scan-prefix examples/blog` only loads that subtree. **`--diff-only`** if you’re in a hurry and only want the diff-touched paths (weaker, but sometimes the repo is the size of a small moon).
+
+---
+
+### JSON cheat sheet (the fields that matter)
+
+| Path | Meaning |
+|------|---------|
+| `allow` | Policy said yes/no to this snapshot. |
+| `findings[]` | What went wrong; empty is a good day. |
+| `findings[].code` | Stable ID; pairs with feedback YAML keys. |
+| `findings[].severity` | `"error"` fails strict; `"warning"` is side-eye. |
+| `findings[].message` | Rego’s short story. |
+| `findings[].path` | File, if the rule cares where you live. |
+| `findings[].feedback` | Nicer words: `title`, `remediation`, `references`. |
+| `inputs.changed_paths` | What got concatenated into the policy soup. |
+| `inputs.scan_mode` | `full_tree` / `diff_only` / `prefix`. |
+| `inputs.change_source` | `git_head` / `diff_file` / `stdin`. |
+| `query_errors` | OPA blew up—don’t declare victory. |
+
+---
+
+### What you need in the room
+
+- Python **≥ 3.11**
+- **OPA** on PATH or **`tools/opa`**
+- **Git** if you’re riding the default `git diff HEAD` train (else bring your own `--diff-file`)
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
-Confirm the CLI:
-
-```bash
-policy-eval --help
-# or: python -m policy_eval --help
-```
-
 ---
 
-## Quick start
-
-From your **workspace root** (the project you want to check):
-
-```bash
-policy-eval evaluate --pretty
-```
-
-- **Baseline:** committed tree at **`git HEAD`** (plus untracked files on disk), and proposed edits from **`git diff HEAD`**. Paths under **`.clawtfup/`** are excluded from that diff so policy edits do not go through the patch applier.
-- **Strict by default:** exit code **2** if `allow` is false or any finding has severity **error** (JSON is still printed on stdout).
-- **`--no-strict`:** exit **0** so scripts can parse the report even when policy denies; use only when you explicitly want a non-failing process.
-
-Evaluate a specific diff file against a fixture-style tree:
-
-```bash
-python -m policy_eval evaluate \
-  --workspace tests/fixtures/sample_project \
-  --diff-file tests/fixtures/patches/app_eval.patch \
-  --pretty
-```
-
-Agent expectations for this repo are documented in **[`AGENTS.md`](AGENTS.md)**.
-
----
-
-## How it works
-
-1. **Index** the workspace (text files under the root; **`.git/`** and **`.clawtfup/`** are skipped so policy config is not treated as product source).
-2. **Apply** the unified diff to produce **`files_after`** and **`changed_paths`**.
-3. **Build** an OPA `input` document: workspace fragment (`combined_after` from changed hunks, full file contents for changed paths, optional `policy` / `requirements`).
-4. **Merge** optional **`--input-json`** and programmatic overlays in the order documented below.
-5. **Run** `opa eval` for each query listed in **`policy_eval.yaml`** (typically `data.code_edits.report`).
-6. **Enrich** violations with entries from **`.clawtfup/feedback/`** when the violation `code` matches.
-
-There is **no HTTP server**. Use the CLI or import **`evaluate(EvaluateOptions(...))`** in Python on the machine that has the workspace.
-
----
-
-## Workspace layout
-
-From the repository or application root:
-
-| Path | Purpose |
-|------|---------|
-| **`.clawtfup/policies/`** | **`policy_eval.yaml`** (or `.yml`): `queries` and optional `findings_query`. Subfolder **`rego/`**: Rego modules passed to OPA (`-d`). |
-| **`.clawtfup/feedback/`** | Any **`*.yaml`**, **`*.yml`**, **`*.json`**; merged by sorted filename (later files override the same violation **`code`**). OPA does **not** read these; they supply human/agent remediation text. |
-
-Bundled reference policies and feedback for this repo live under **`.clawtfup/`** at the project root. **`tests/fixtures/sample_project/`** mirrors that layout for tests.
-
-Policy rule categories (summary) are described in **[`.clawtfup/policies/README.md`](.clawtfup/policies/README.md)**.
-
----
-
-## OPA input merge order
-
-The document passed to Rego as **`input`** is built as follows (later wins on key conflicts):
-
-1. Workspace fragment: **`workspace`** (root, `files_before`, `files_after`, `changed_paths`, `combined_after`), **`change`**, default **`requirements`**, default **`policy`**.
-2. **`--input-json`**: if the file’s root has **`"input"`**, that object is merged; otherwise the whole file is merged.
-3. Inline overlay from **`EvaluateOptions.input_overlay`** when using the Python API.
-
-Use **`input.policy`** (for example `enforce_anchor_on_changed_python`) and **`input.requirements`** (`must_contain` / `must_not_contain`) when your Rego expects them.
-
----
-
-## CLI reference
+### Flags (the boring but accurate part)
 
 ```text
-policy-eval evaluate [--workspace DIR] [--diff-file PATH|-] [--input-json PATH]
-  [--query Q] [--max-files N] [--max-file-bytes N] [--exclude-glob G] [--no-gitignore]
-  [--pretty] [--no-strict]
+clawtfup evaluate [--workspace DIR] [--diff-file PATH|-] [--diff-only] [--scan-prefix PATH]
+  [--input-json PATH] [--query Q] [--max-files N] [--max-file-bytes N] [--exclude-glob G]
+  [--no-gitignore] [--pretty] [--no-strict]
 ```
 
-| Flag | Meaning |
-|------|---------|
-| **`--workspace`** | Project root; default current directory. Policies: **`<workspace>/.clawtfup/policies/`** (no override). |
-| **`--diff-file`** | Unified diff of proposed edits; **`-`** reads stdin. Default: run **`git diff HEAD`** in **`--workspace`**. |
-| **`--patch`** | Deprecated alias for **`--diff-file`**. |
-| **`--input-json`** | JSON merged into OPA input after the workspace fragment. |
-| **`--query`** | Repeatable; overrides manifest queries. |
-| **`--max-files` / `--max-file-bytes`** | Index limits; **`0`** means no cap (defaults apply otherwise). |
-| **`--no-gitignore`** | Do not respect `.gitignore` when indexing. |
-| **`--pretty`** | Pretty-print JSON on stdout. |
-| **`--no-strict`** | Always exit **0** when the tool completes successfully. |
-| **`--strict`** | Hidden no-op for older scripts. |
+| Flag | Effect |
+|------|--------|
+| `--workspace` | Where the code lives; policies = `<workspace>/.clawtfup/policies/`. |
+| `--diff-file` / `-` | Your diff; default = `git diff HEAD` (minus `.clawtfup` in the pathspec). |
+| `--diff-only` | Only diff paths—fast, forgetful. |
+| `--scan-prefix` | Only one branch of the tree—surgical snacking. |
+| `--input-json` | Extra OPA `input` merge. |
+| `--pretty` | Pretty JSON (for carbon-based readers). |
+| `--no-strict` | Exit 0 even when policy says “nuh-uh.” |
 
-**Exit codes:** **0** — evaluation completed and (in strict mode) policy allowed with no error-level findings. **2** — strict failure (`allow` false or error findings), or CLI usage error as implemented. **Non-zero** may also indicate patch apply errors or OPA failures (see stderr / report).
+**Exits:** **0** = strict happiness. **2** = typical “you shall not merge.” Others = bad patch, missing bundle, OPA drama.
 
 ---
 
-## Python API
+### Where files go
+
+- **`.clawtfup/policies/policy_eval.yaml`** — queries + optional `findings_query`
+- **`.clawtfup/policies/rego/*.rego`** — the actual law
+- **`.clawtfup/feedback/*.{yaml,yml,json}`** — the “here’s how to be less wrong” layer (OPA ignores these; we attach them after)
+
+Indexing skips `.git/` and `.clawtfup/` as *source*, skips binary-ish junk. Life’s too short to Rego your `node_modules`.
+
+---
+
+### OPA `input` merge (last writer wins)
+
+1. Built-in `workspace` + `change` + `requirements` + `policy`
+2. `--input-json` (wrap in `{ "input": { ... } }` if you like nesting)
+3. `EvaluateOptions.input_overlay` in Python
+
+---
+
+### Python API (embed the bouncer)
 
 ```python
 from pathlib import Path
@@ -135,43 +134,21 @@ report = evaluate(
     EvaluateOptions(
         workspace=Path("/path/to/project"),
         bundle_root=Path("/path/to/project/.clawtfup/policies"),
-        patch_text=Path("changes.patch").read_text(encoding="utf-8"),
-        use_gitignore=True,
-        change_source="diff_file",
+        patch_text="",
+        change_source="git_head",
+        index_from_git_head=True,
+        full_scan=True,
     )
 )
 ```
 
-- **`bundle_root`** must be the **policies directory** (contains **`policy_eval.yaml`** and **`rego/`**).
-- Feedback is always loaded from **`<workspace>/.clawtfup/feedback/`**.
+`full_scan` defaults **True**; **`False`** = same idea as `--diff-only`.
 
 ---
 
-## Indexing behavior
+### Further reading (when you’re done being witty)
 
-- Skipped paths: **`.git/`**, **`.clawtfup/`**.
-- Files with NUL in the first 8 KiB or invalid UTF-8 are skipped; the report can include index warnings and skip counts.
-- A malformed unified diff surfaces as an error with details suitable for tooling.
-
----
-
-## Development
-
-```bash
-pip install -r requirements.txt   # editable install + pytest
-pytest
-```
-
-End-to-end tests expect **OPA** on `PATH` or **`tools/opa`**.
-
----
-
-## OPA data layout
-
-Only **`rego/`** should contain **`*.rego`** files you intend as policy. Other files under the OPA `-d` directory become **`data`** in OPA. See the official **[OPA eval CLI](https://www.openpolicyagent.org/docs/latest/cli/#opa-eval)** documentation.
-
----
-
-## License and versioning
-
-Package metadata lives in **`pyproject.toml`** (`policy-eval`, version **0.1.0** at time of writing). Add a license file and PyPI classifiers when you publish.
+- [`AGENTS.md`](AGENTS.md) — non-optional behavior in this repo
+- [`.clawtfup/policies/README.md`](.clawtfup/policies/README.md) — flavor of the bundled rules
+- `pytest` + OPA for tests
+- `pyproject.toml` — package name **`clawtfup`**

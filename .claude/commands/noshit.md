@@ -12,7 +12,7 @@ Run from the repository root:
 python -m policy_eval evaluate --pretty
 ```
 
-If `policy-eval` is on PATH you can also use `policy-eval evaluate --pretty`.
+If `clawtfup` is on PATH you can also use `clawtfup evaluate --pretty`.
 
 **Enforce the result strictly:**
 

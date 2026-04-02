@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{{ post.title }}{% endblock %}
+{% block content %}
+<article>
+    <h1>{{ post.title }}</h1>
+    <p>By {{ post.author.username }} &mdash; {{ post.created_at.strftime('%Y-%m-%d') }}</p>
+    {% if post.summary %}
+    <p><em>{{ post.summary }}</em></p>
+    {% endif %}
+    <p>{{ post.body }}</p>
+
+    {% if current_user_id == post.author_id %}
+    <a href="{{ url_for('posts.edit_post', slug=post.slug) }}">Edit</a>
+    {% endif %}
+</article>
+
+<section>
+    <form method="POST" action="{{ url_for('posts.toggle_like', slug=post.slug) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">
+            {% if liked %}Unlike{% else %}Like{% endif %} ({{ likes }})
+        </button>
+    </form>
+</section>
+
+{% set refs = post.references.all() %}
+{% if refs %}
+<section>
+    <h3>References</h3>
+    <ul>
+    {% for ref in refs %}
+        <li><a href="{{ ref.url }}">{{ ref.title }}</a></li>
+    {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+<section>
+    <h3>Comments ({{ comments | length }})</h3>
+    {% for comment in comments %}
+    <div>
+        <strong>{{ comment.author.username }}</strong>
+        <time>{{ comment.created_at.strftime('%Y-%m-%d') }}</time>
+        <p>{{ comment.body }}</p>
+    </div>
+    {% endfor %}
+
+    {% if current_user_id %}
+    <form method="POST" action="{{ url_for('posts.add_comment', slug=post.slug) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <textarea name="body" rows="4" required placeholder="Write a comment..."></textarea>
+        <br>
+        <button type="submit">Post Comment</button>
+    </form>
+    {% else %}
+    <p><a href="{{ url_for('auth.login') }}">Log in</a> to comment.</p>
+    {% endif %}
+</section>
+{% endblock %}

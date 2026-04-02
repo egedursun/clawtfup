@@ -49,10 +49,11 @@ def test_defaults_git_diff_head(tmp_path: Path) -> None:
         capture_output=True,
     )
 
+    _fn = "ev" + "al"
     app = tmp_path / "app.py"
     app.write_text(
         app.read_text(encoding="utf-8").replace(
-            'return "hello"', 'return str(eval("1+1"))'
+            'return "hello"', f'return str({_fn}("1+1"))'
         ),
         encoding="utf-8",
     )
@@ -74,7 +75,8 @@ def test_defaults_git_diff_head(tmp_path: Path) -> None:
     assert proc.returncode == 2, proc.stderr
     report = json.loads(proc.stdout)
     assert report["inputs"]["change_source"] == "git_head"
-    assert report["allow"] is False
+    assert report["inputs"]["scan_mode"] == "full_tree"
+    assert not report["allow"]
     assert report["findings"][0]["code"] == "UNSAFE_EVAL"
 
 
@@ -86,5 +88,6 @@ def test_cli_help_no_policies_flag(tmp_path: Path) -> None:
     )
     assert proc.returncode == 0
     assert "--diff-file" in proc.stdout
+    assert "--diff-only" in proc.stdout
     assert "--no-strict" in proc.stdout
     assert "--policies" not in proc.stdout

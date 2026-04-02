@@ -17,11 +17,11 @@ from .git_changes import git_diff_head
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="policy-eval",
+        prog="clawtfup",
         description=(
-            "Evaluate proposed code changes against OPA policies in "
-            "<workspace>/.clawtfup/policies/. Proposed edits: git diff HEAD "
-            "(excludes .clawtfup/) or --diff-file."
+            "Evaluate workspace against OPA policies in <workspace>/.clawtfup/policies/. "
+            "By default the whole indexed tree is checked (full scan); the unified diff "
+            "still updates files_after vs baseline. Use --diff-only to check only diff-touched paths."
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -88,6 +88,29 @@ def main(argv: list[str] | None = None) -> int:
         help="Do not apply .gitignore rules when indexing.",
     )
     ev.add_argument(
+        "--diff-only",
+        action="store_true",
+        help=(
+            "Only run policy on paths touched by git diff HEAD or --diff-file (legacy mode). "
+            "Default is full-tree scan of all indexed files."
+        ),
+    )
+    ev.add_argument(
+        "--scan-all",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    ev.add_argument(
+        "--scan-prefix",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Restrict the scan to files under this path (posix, relative to workspace), "
+            "e.g. examples/blog. Implies full content under that prefix, not diff-only."
+        ),
+    )
+    ev.add_argument(
         "--no-strict",
         action="store_true",
         help="Exit 0 even when allow is false or there are error-severity findings (default: strict).",
@@ -112,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     policies = default_policies_dir(workspace).resolve()
 
     if not policies.is_dir():
-        print(
+        sys.stderr.write(
             json.dumps(
                 {
                     "error": (
@@ -120,28 +143,30 @@ def main(argv: list[str] | None = None) -> int:
                         "Create .clawtfup/policies/ with policy_eval.yaml and rego/."
                     )
                 }
-            ),
-            file=sys.stderr,
+            ) + "\n"
         )
         return 1
 
     diff_arg = args.diff_file
     if args.patch is not None:
         if diff_arg is not None:
-            print(
-                json.dumps({"error": "use only one of --diff-file and --patch"}),
-                file=sys.stderr,
+            sys.stderr.write(
+                json.dumps({"error": "use only one of --diff-file and --patch"}) + "\n"
             )
             return 1
-        print(_PATCH_DEPRECATION, file=sys.stderr, end="")
+        sys.stderr.write(_PATCH_DEPRECATION)
         diff_arg = args.patch
+
+    scan_prefix = (args.scan_prefix or "").strip() or None
+    # Full-tree scan is default; --diff-only narrows to patch-touched paths only.
+    use_full_scan = (scan_prefix is None) and (not args.diff_only)
 
     change_source: str
     if diff_arg is None:
         try:
             patch_text = git_diff_head(workspace)
         except PolicyEvalError as e:
-            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.stderr.write(json.dumps({"error": str(e)}) + "\n")
             return 1
         change_source = "git_head"
     elif diff_arg == "-":
@@ -150,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         p = Path(diff_arg)
         if not p.is_file():
-            print(json.dumps({"error": f"diff file not found: {p}"}), file=sys.stderr)
+            sys.stderr.write(json.dumps({"error": f"diff file not found: {p}"}) + "\n")
             return 1
         patch_text = p.read_text(encoding="utf-8")
         change_source = "diff_file"
@@ -167,19 +192,21 @@ def main(argv: list[str] | None = None) -> int:
         use_gitignore=not args.no_gitignore,
         change_source=change_source,
         index_from_git_head=(change_source == "git_head"),
+        full_scan=use_full_scan,
+        scan_prefix=scan_prefix,
     )
 
     try:
         report = evaluate(opts)
     except (PolicyEvalError, ManifestError, PatchApplyError, OpaEngineError) as e:
-        print(json.dumps({"error": str(e)}), file=sys.stderr)
+        sys.stderr.write(json.dumps({"error": str(e)}) + "\n")
         return 1
 
     indent = 2 if args.pretty else None
-    print(json.dumps(report, indent=indent))
+    sys.stdout.write(json.dumps(report, indent=indent) + "\n")
 
     if not args.no_strict:
-        if report.get("allow") is False:
+        if not report.get("allow"):
             return 2
         for f in report.get("findings") or []:
             if f.get("severity") == "error":
