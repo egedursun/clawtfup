@@ -713,3 +713,9 @@ Full spec: **[AGENTS.md](AGENTS.md)**
 - [AGENTS.md](AGENTS.md) — mandatory agent behaviour in this repository
 - [.clawtfup/policies/README.md](.clawtfup/policies/README.md) — bundled rule set
 - [pyproject.toml](pyproject.toml) — distribution name `clawtfup`, import package `policy_eval`
+
+---
+
+## Credits
+
+clawtfup's enforcement engine is built on **[Open Policy Agent (OPA)](https://github.com/open-policy-agent/opa)**, the open-source policy engine that made policy-as-code a practical reality. OPA was created by [**Torin Sandall**](https://github.com/tsandall) and [**Tim Hinrichs**](https://github.com/timothyhinrichs) at Styra and is now a graduated CNCF project. None of this would be possible without their work.
