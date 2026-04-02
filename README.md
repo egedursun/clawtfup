@@ -14,7 +14,8 @@
 
 **Workspace in. Unified diff in. JSON verdict out.**
 
-OPA evaluates your tree plus proposed edits—your Rego, your feedback copy, one stdout report.
+OPA evaluates your full tree plus proposed edits—your Rego, your feedback copy, one stdout report.  
+Wire it as a post-hook on any agent turn and your LLM never ships a policy violation silently again.
 
 [AGENTS.md](AGENTS.md) · [Bundled policies](.clawtfup/policies/README.md)
 
@@ -22,14 +23,63 @@ OPA evaluates your tree plus proposed edits—your Rego, your feedback copy, one
 
 ---
 
+## Why clawtfup
+
+LLM agents and REPL tools (Claude Code, Cursor, Aider, custom runners) are fast—but they have no intrinsic awareness of your repo's architectural layering rules, security invariants, or syntactic constraints. They'll generate code that works in isolation and silently violates the conventions that hold your codebase together.
+
+**clawtfup** is the hook layer that closes that gap. You define policy once in Rego; the tool enforces it on every agent turn:
+
+- **Semantic constraints** — e.g. no DB queries in view layers, no circular imports across bounded contexts
+- **Security invariants** — e.g. no `eval`, no pickle, no raw SQL f-strings, no TLS verify disabled
+- **Syntactic rules** — e.g. Python 2 syntax leakage, mutable default arguments, dangerous patterns
+- **Your own rules** — `.clawtfup/policies/rego/*.rego` is yours; write any constraint OPA can express
+
+The feedback loop is tight: exit **2** hands findings back to the agent with remediation text so the next turn knows exactly what to fix, not just that something failed.
+
+---
+
+## How it fits in a hook architecture
+
+```mermaid
+flowchart LR
+  subgraph turn["Agent turn"]
+    LLM["LLM / REPL tool"]
+    Diff["Unified diff\nor git state"]
+    Gate["clawtfup evaluate"]
+    LLM --> Diff
+    Diff --> Gate
+  end
+  Gate -->|"exit 0\n allow: true"| Ship["Apply / continue\nto next task"]
+  Gate -->|"exit 2\n findings[]"| Fix["Parse findings JSON\n+ remediation → re-prompt"]
+  Fix --> LLM
+```
+
+**Pre-hook vs post-hook.** clawtfup runs *after* the model proposes edits and *before* they land on disk or merge. That makes it a **post-LLM / pre-apply hook**—the natural enforcement point. You can also run it in CI as a **pre-merge gate**, catching anything that slipped through local hooks.
+
+```
+┌────────────────────────────────────────────────────┐
+│  Agent orchestrator (Claude Code, Cursor, custom)  │
+│                                                    │
+│  pre-hook     → validate task / context            │
+│  [LLM turn]   → generate edits                     │
+│  post-hook    → clawtfup evaluate ← you are here   │
+│  on exit 0    → apply / commit / continue          │
+│  on exit 2    → feed findings back, re-run turn    │
+└────────────────────────────────────────────────────┘
+```
+
+---
+
 ## At a glance
 
 | | |
 |:---|:---|
-| **What** | Indexes text under your project root, merges **`git diff HEAD`** (or a patch you supply), runs **`.clawtfup/policies/`** through OPA, attaches **`.clawtfup/feedback/`** hints to findings. |
+| **Indexes** | Text files under project root (committed tree via git or disk walk). |
+| **Applies** | Unified diff (`--diff-file`, stdin, or default `git diff HEAD`) to produce the proposed file state. |
+| **Evaluates** | Your `.clawtfup/policies/` Rego bundle via OPA against the full workspace. |
+| **Enriches** | Findings with `.clawtfup/feedback/` remediation text and references. |
 | **Default scan** | **Full tree**—committed code is in scope, not only touched lines. Use `--diff-only` when you intentionally want a narrower check. |
-| **CLI** | `clawtfup` · also `python -m policy_eval evaluate …` |
-| **Strict** | Exit **2** if `allow` is false or any error-level finding—unless you pass `--no-strict`. |
+| **Strict mode** | Exit **2** if `allow` is false or any error-level finding—unless `--no-strict`. |
 
 ---
 
@@ -43,19 +93,19 @@ You also need **OPA** on `PATH` or a binary at **`tools/opa`**. **Git** is expec
 
 ---
 
-## Run it
+## Quickstart
 
-From the **repository root** (or pass `--workspace`):
+Run from the **repository root** (or pass `--workspace`):
 
 ```bash
 clawtfup evaluate --pretty
 ```
 
-**Success:** exit **0**, stdout is one JSON object with `"allow": true` and no error-severity `findings[]`.
+**Pass:** exit **0**, JSON with `"allow": true` and no error-severity `findings[]`.
 
-**Failure:** exit **2** (strict). Read `findings[]`, use `feedback.remediation` when present, fix product code, run again.
+**Fail:** exit **2** (strict). Read `findings[]`, use `feedback.remediation` when present, fix application code, run again.
 
-Pipe a **unified diff** instead of using git’s working tree:
+Pipe a **unified diff** directly (no git state needed):
 
 ```bash
 clawtfup evaluate --diff-file - --pretty < proposed.patch
@@ -63,124 +113,213 @@ clawtfup evaluate --diff-file - --pretty < proposed.patch
 
 ---
 
-## Agents & LLMs
+## Wiring into agents and REPL tools
 
-This README is written so tools and humans share the same contract. In short:
+### Claude Code
 
-1. Run **`clawtfup evaluate --pretty`** before calling a task “done”.
-2. Treat stdout JSON as the source of truth; **do not** use `--no-strict` unless a human asked.
-3. On failure, implement fixes in **application code**—not by weakening `.clawtfup/` unless the user explicitly changes policy.
+Add a post-tool hook in `.claude/settings.json` so every file-write turn is evaluated automatically:
 
-Stricter, repo-specific rules: **[AGENTS.md](AGENTS.md)**.
-
----
-
-## Post-LLM hooks: enforce policy on agent output
-
-Use **clawtfup** *after* the model returns proposed edits and *before* you apply them to disk or merge. The model proposes text; your harness turns that into a **unified diff** (or relies on **git** after staging) and runs the evaluator.
-
-```mermaid
-flowchart LR
-  subgraph hook["Your orchestrator"]
-    LLM["LLM / agent"]
-    Patch["Unified diff\n(or git state)"]
-    C["clawtfup evaluate"]
-    LLM --> Patch
-    Patch --> C
-  end
-  C -->|exit 0| Ship["Apply changes\n/ continue"]
-  C -->|exit 2| Loop["Parse findings JSON\n→ prompt model to fix"]
-  Loop --> LLM
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "clawtfup evaluate --pretty"
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
 
-**Patterns that work well**
+Or use the bundled slash command at `.claude/commands/noshit.md` which wraps any task description and enforces the gate before marking the task complete.
 
-| Pattern | Idea |
-|:--------|:-----|
-| **Stdin patch** | After the LLM emits a patch, run `clawtfup evaluate --diff-file - --pretty` and pipe the patch on stdin. `inputs.change_source` will be `stdin`. |
-| **Git after apply** | Let the agent edit files, then run `clawtfup evaluate --pretty` so the default `git diff HEAD` reflects those edits against `HEAD`. |
-| **Saved diff file** | Write the model’s unified diff to a temp file; `clawtfup evaluate --diff-file /tmp/p.patch --pretty`. |
-| **CI / pre-merge** | In GitHub Actions (or similar), run `clawtfup evaluate` on the PR workspace so every merge is gated the same way as local agents. |
-| **Editor / agent hooks** | Wire a “after agent turn” or “before save” command in Cursor, Claude Code, or your own runner to shell out to `clawtfup`; block apply when exit code is **2** and pass `findings[]` back into the next model call. |
+### Cursor / Aider / custom runners
 
-**Hook contract (keep it boring and reliable)**
+Any runner that can shell out after a model turn can integrate clawtfup:
 
-- Parse **stdout only** as JSON; stderr is for humans and errors.
-- If exit code is **2**, load `findings[]` and feed `message` plus `feedback.remediation` into the next LLM turn until exit **0** or the user aborts.
-- For **fast inner loops** on huge repos, consider `--scan-prefix` or (weaker) `--diff-only`—document that choice so agents do not use it to evade full-repo rules without human intent.
+```bash
+# After applying model edits to disk
+clawtfup evaluate --pretty
+if [ $? -ne 0 ]; then
+  # Extract findings and re-prompt
+  clawtfup evaluate --pretty | jq '.findings[] | {code, message, remediation: .feedback.remediation}'
+fi
+```
 
-clawtfup does **not** ship a vendor-specific hook config; it is a **CLI + library** so any stack that can run a process and read JSON can gate agents.
+### Integration patterns
+
+| Pattern | Command | When to use |
+|:--------|:--------|:------------|
+| **Stdin patch** | `clawtfup evaluate --diff-file - --pretty < patch` | Agent emits a unified diff before touching disk. |
+| **Git after apply** | `clawtfup evaluate --pretty` | Agent edits files; default `git diff HEAD` captures them. |
+| **Saved diff file** | `clawtfup evaluate --diff-file /tmp/p.patch --pretty` | Diff written to temp file by orchestrator. |
+| **CI gate** | `clawtfup evaluate` (no `--pretty`) | GitHub Actions / pre-merge; exit code drives pass/fail. |
+| **Prefix scan** | `clawtfup evaluate --scan-prefix src/api --pretty` | Large monorepo; gate only the changed bounded context. |
+
+### Hook contract
+
+- Parse **stdout only** as JSON; stderr is for humans and fatal errors.
+- Exit **2** → load `findings[]`, feed each `message` and `feedback.remediation` into the next model turn, repeat until exit **0** or the user aborts.
+- **Never pass `--no-strict` in automated hooks.** That flag is for humans inspecting a denied report, not for agents avoiding policy fixes.
+- For very large repos, `--scan-prefix` narrows scope deliberately; `--diff-only` weakens coverage—document whichever you choose so agents can't silently exploit it.
 
 ---
 
-## JSON (fields worth parsing)
+## JSON output
+
+```jsonc
+{
+  "allow": false,
+  "findings": [
+    {
+      "code": "SQL_FSTRING_QUERY",
+      "severity": "error",
+      "message": "SQL query built with f-string interpolation",
+      "path": "src/db/queries.py",
+      "feedback": {
+        "title": "SQL injection via f-string query",
+        "remediation": "Use parameterised queries. Pass values as a second argument to execute(), never via string formatting.",
+        "references": ["https://docs.python.org/3/library/sqlite3.html"]
+      }
+    }
+  ],
+  "inputs": {
+    "changed_paths": ["src/db/queries.py"],
+    "scan_mode": "full_tree",
+    "change_source": "git_head"
+  },
+  "query_errors": []
+}
+```
+
+### Fields worth parsing
 
 | Path | Meaning |
 |:-----|:--------|
 | `allow` | Policy allow/deny for this snapshot. |
-| `findings[]` | Violations; empty is clean. |
-| `findings[].code` | Stable id; maps to feedback YAML. |
-| `findings[].severity` | `"error"` fails strict; `"warning"` does not. |
+| `findings[]` | Violations; empty array means clean. |
+| `findings[].code` | Stable identifier; maps to feedback YAML keys. |
+| `findings[].severity` | `"error"` fails strict mode; `"warning"` does not. |
 | `findings[].message` | Short explanation from Rego. |
-| `findings[].path` | File, when relevant. |
+| `findings[].path` | File path, when the rule is path-scoped. |
 | `findings[].feedback` | `title`, `remediation`, `references` when configured. |
-| `inputs.changed_paths` | Paths involved in the change slice. |
+| `inputs.changed_paths` | Paths covered by the diff slice. |
 | `inputs.scan_mode` | `full_tree` / `diff_only` / `prefix`. |
 | `inputs.change_source` | `git_head` / `diff_file` / `stdin`. |
-| `query_errors` | OPA or query failures—do not treat as success. |
+| `query_errors` | OPA or query failures—never treat as pass. |
+
+---
+
+## Built-in policy coverage
+
+The bundled Rego ruleset (`.clawtfup/policies/rego/`) covers:
+
+**Security — exit 2**
+- Code execution: `eval`, `exec`, `os.system`, `subprocess(shell=True)`, `dynamic import`
+- Serialisation: `pickle`, `marshal`, unsafe `yaml.load`
+- Injection: SQL f-string queries, SSTI via `render_template_string`, open redirects
+- Auth / transport: TLS verify disabled, JWT verify disabled, CSRF, insecure cookies, CORS misconfig
+- Secrets: AWS keys, API tokens, passwords in comments or code
+
+**Portability — exit 2**
+- Python 2 syntax leakage: `print` statements, `except E, e`, `iteritems`, `has_key`, `unicode`, `basestring`, `xrange`, `raw_input`, octal literals, long integer suffix
+
+**Design — warnings**
+- Anti-patterns: `range(len(...))`, mutable default arguments, `global` in functions, bare `except: pass` on `ImportError`
+- Threading: daemon thread creation, unsafe hash in dataclasses
+- LBYL: `os.path.exists` before open instead of EAFP
+
+**Architecture — warnings**
+- Database calls in view/route layers
+- Circular import patterns
+
+**Style — warnings**
+- Lines > 120 characters, leading/trailing tabs
+
+All rules are overridable or replaceable—`.clawtfup/` is yours.
 
 ---
 
 ## CLI reference
 
 ```text
-clawtfup evaluate [--workspace DIR] [--diff-file PATH|-] [--diff-only] [--scan-prefix PATH]
-  [--input-json PATH] [--query Q] [--max-files N] [--max-file-bytes N] [--exclude-glob G]
-  [--no-gitignore] [--pretty] [--no-strict]
+clawtfup evaluate [options]
 ```
 
 <details>
-<summary><strong>Flags</strong> (click to expand)</summary>
+<summary><strong>All flags</strong></summary>
 
-| Flag | Effect |
-|:-----|:-------|
-| `--workspace` | Project root; policies live in `<workspace>/.clawtfup/policies/`. |
-| `--diff-file` / `-` | Unified diff file or stdin (`-`). Default: `git diff HEAD` in the workspace. |
-| `--diff-only` | Run policy only on diff-touched paths (legacy / faster, weaker). |
-| `--scan-prefix` | Only index and scan under this relative path (e.g. `examples/blog`). |
-| `--input-json` | JSON merged into OPA input after the built-in fragment. |
-| `--exclude-glob` | Repeatable `fnmatch` on workspace-relative paths (not recursive `**` globstar). |
-| `--no-gitignore` | Index paths `.gitignore` would hide (use sparingly). |
-| `--pretty` | Pretty-printed JSON on stdout. |
-| `--no-strict` | Exit 0 even when denied or errors present (humans / tooling only). |
+| Flag | Default | Effect |
+|:-----|:--------|:-------|
+| `--workspace DIR` | cwd | Project root; policies expected at `<workspace>/.clawtfup/policies/`. |
+| `--diff-file PATH\|-` | — | Unified diff file or stdin (`-`). Overrides default `git diff HEAD`. |
+| `--diff-only` | off | Run policy only on diff-touched paths. Weaker than full-tree; use deliberately. |
+| `--scan-prefix PATH` | — | Only index and evaluate under this relative path (e.g. `src/api`). |
+| `--input-json PATH` | — | JSON file deep-merged into OPA input after the built-in fragment. |
+| `--query Q` | manifest | Repeatable. Override OPA queries from `policy_eval.yaml`. |
+| `--max-files N` | 10 000 | Indexing cap; `0` = no cap. |
+| `--max-file-bytes N` | 524 288 | Skip files larger than N bytes; `0` = no cap. |
+| `--exclude-glob G` | — | Repeatable `fnmatch` on workspace-relative paths. |
+| `--no-gitignore` | off | Index paths `.gitignore` would hide. |
+| `--pretty` | off | Pretty-print JSON output. |
+| `--no-strict` | off | Exit 0 even on deny or error findings. **Not for agents.** |
 
-**Exit codes:** **0** = strict pass · **2** = policy denial or error findings · other = bad input, bundle, or OPA failure.
+**Exit codes:** `0` = strict pass · `2` = policy denial or error findings · other = bad input, bundle, or OPA failure.
 
 </details>
 
 ---
 
-## Excluding paths
+## Controlling scope
 
-Policy only sees **indexed** files. There is no separate Rego-side ignore file.
+Policy only sees **indexed** files. Exclusions are applied at indexing time, not in Rego.
 
-| Mechanism | Role |
-|:----------|:-----|
-| **`.gitignore`** | **On by default.** Ignored files are not indexed. |
-| **`--no-gitignore`** | Disable that filter (expect noise unless you also narrow scope). |
-| **`--exclude-glob`** | Repeatable shell-style globs on relative paths; deep trees often belong in `.gitignore` instead. |
-| **`--scan-prefix`** | Only evaluate under one subtree. |
-| **Always skipped** | `.git/` and `.clawtfup/` are never indexed as product source. |
+| Mechanism | Behaviour |
+|:----------|:----------|
+| `.gitignore` | **On by default.** Excluded files are not indexed. |
+| `--no-gitignore` | Disable that filter (expect noise without other narrowing). |
+| `--exclude-glob G` | Shell-style globs on relative paths; repeatable. |
+| `--scan-prefix PATH` | Index and evaluate only one subtree. |
+| Always skipped | `.git/` and `.clawtfup/` are never treated as product source. |
 
 ---
 
-## Repo layout
+## Policy and feedback layout
 
-| Path | Role |
-|:-----|:-----|
-| `.clawtfup/policies/policy_eval.yaml` | OPA queries (and optional `findings_query`). |
-| `.clawtfup/policies/rego/*.rego` | Policy rules. |
-| `.clawtfup/feedback/*.{yaml,yml,json}` | Human-facing remediation text (merged after OPA). |
+```
+.clawtfup/
+├── policies/
+│   ├── policy_eval.yaml          # OPA queries + optional findings_query
+│   └── rego/
+│       └── *.rego                # Policy rules (yours to extend or replace)
+└── feedback/
+    └── *.{yaml,yml,json}         # Remediation text keyed by violation code
+```
+
+**`policy_eval.yaml`** minimum shape:
+
+```yaml
+queries:
+  - data.code_edits.report
+findings_query: data.code_edits.report
+```
+
+**`feedback/`** entry shape:
+
+```yaml
+SQL_FSTRING_QUERY:
+  severity: error
+  title: SQL injection via f-string query
+  remediation: Use parameterised queries. Pass values as a second argument to execute().
+  references:
+    - https://docs.python.org/3/library/sqlite3.html
+```
 
 ---
 
@@ -194,20 +333,35 @@ report = evaluate(
     EvaluateOptions(
         workspace=Path("/path/to/project"),
         bundle_root=Path("/path/to/project/.clawtfup/policies"),
-        patch_text="",
+        patch_text="",           # empty = use git diff HEAD
         change_source="git_head",
         index_from_git_head=True,
-        full_scan=True,
+        full_scan=True,          # full_tree mode (default CLI behaviour)
     )
 )
+
+if not report["allow"]:
+    for f in report["findings"]:
+        print(f["code"], f["message"], f.get("feedback", {}).get("remediation", ""))
 ```
 
-`full_scan=True` matches the default CLI (full tree). Set `full_scan=False` for diff-only style evaluation.
+`full_scan=True` mirrors the default CLI. Set `full_scan=False` for diff-only evaluation.
+
+---
+
+## Agent rules (summary)
+
+Full spec: **[AGENTS.md](AGENTS.md)**
+
+1. Run `clawtfup evaluate --pretty` before treating any coding task as done.
+2. Treat stdout JSON as source of truth; never use `--no-strict` to avoid fixing violations.
+3. Fix **application code** to satisfy policy—do not weaken `.clawtfup/` unless the user explicitly asked.
+4. If the binary is missing, fix the environment (`pip install -e .`, OPA on `PATH`), then re-run.
 
 ---
 
 ## Further reading
 
-- [AGENTS.md](AGENTS.md) — mandatory agent behavior in this repository  
-- [.clawtfup/policies/README.md](.clawtfup/policies/README.md) — bundled rule set  
-- [pyproject.toml](pyproject.toml) — distribution name **`clawtfup`**, import package **`policy_eval`**
+- [AGENTS.md](AGENTS.md) — mandatory agent behaviour in this repository
+- [.clawtfup/policies/README.md](.clawtfup/policies/README.md) — bundled rule set
+- [pyproject.toml](pyproject.toml) — distribution name `clawtfup`, import package `policy_eval`
