@@ -1,8 +1,6 @@
 <div align="center">
 
-|  |
-|:--:|
-| ![clawtfup — Open claws. Closed loopholes.](logo.png) |
+<img src="logo.png" alt="clawtfup — Open claws. Closed loopholes." width="68%">
 
 ### clawtfup
 
