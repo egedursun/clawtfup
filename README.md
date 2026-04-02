@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.png" alt="clawtfup — Open claws. Closed loopholes." width="50%">
+<img src="logo.png" alt="clawtfup — Open claws. Closed loopholes." width="50%" style="border-radius: 18px; border: 3px solid magenta;">
 
 ### clawtfup
 
