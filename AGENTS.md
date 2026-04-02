@@ -28,6 +28,27 @@ You are working in a repo that uses **clawtfup** (OPA + `.clawtfup/`). Treat thi
 
 6. **Do not edit** `.clawtfup/policies/` or `.clawtfup/feedback/` to weaken rules **unless the user explicitly asked** to change policy. Product code must meet policy; policy is not something you casually delete to green the tool.
 
+## Reading findings
+
+Each item in `findings[]` has:
+
+- **`code`** — stable identifier (e.g. `UNSAFE_EVAL`). Use this to look up remediation.
+- **`message`** — short explanation from Rego; treat it as the primary fix hint.
+- **`severity`** — `"error"` means exit 2 (strict); `"warning"` is informational.
+- **`path`** — relative POSIX path when the rule is file-scoped; **empty string** for global rules that check concatenated content. An empty `path` does not mean the finding is unimportant.
+- **`feedback`** — when present, contains `title`, `remediation` (actionable fix text), and `references` (links to docs). Always read `feedback.remediation` when implementing a fix.
+
+## Indexing baseline
+
+The index used for policy evaluation depends on how the diff was supplied:
+
+| Situation | Baseline |
+|:----------|:---------|
+| Default (`git diff HEAD`) | Committed tree at `HEAD` + untracked files |
+| `--diff-file PATH` or stdin | Disk walk of the working tree |
+
+You cannot shrink what policy sees by committing: once code is committed it is part of the `HEAD` baseline and therefore in scope for full-tree evaluation regardless of whether it appears in the diff.
+
 ## What success looks like
 
 - Exit code **0**, JSON with **`"allow": true`** (and no error-level findings).

@@ -349,6 +349,93 @@ if not report["allow"]:
 
 ---
 
+## Writing your own policies
+
+Everything under `.clawtfup/` is yours to extend. The bundled ruleset is a starting point.
+
+### OPA input contract
+
+clawtfup builds the following document and passes it to every query. Your Rego can reference any field.
+
+```
+input.workspace.root              # absolute path to workspace root
+input.workspace.files_before      # map: relative path → content before patch
+input.workspace.files_after       # map: relative path → content after patch
+input.workspace.changed_paths     # list of relative POSIX paths touched by the diff
+input.workspace.combined_after    # all changed-file contents concatenated (fast for global checks)
+input.change.text                 # raw unified diff text
+input.requirements.must_contain   # caller-supplied strings that combined_after must include
+input.requirements.must_not_contain
+input.policy.enforce_anchor_on_changed_python  # bool; requires sentinel comment per .py file
+```
+
+### Violation object shape
+
+Each rule emits a `violation` with these fields:
+
+| Field | Type | Notes |
+|:------|:-----|:------|
+| `code` | string | Stable identifier. Must match a `feedback.yaml` key to get remediation text. |
+| `message` | string | Short explanation shown to the agent on failure. |
+| `severity` | string | `"error"` triggers exit 2 in strict mode; `"warning"` does not. |
+| `path` | string | Relative POSIX path for file-scoped rules; `""` for global/combined checks. |
+
+### Minimal example rule
+
+```rego
+# Global check — fires if the pattern appears anywhere in changed content
+violation contains {
+    "code":     "NO_HARDCODED_HOST",
+    "message":  "Do not hardcode hostnames; read from environment or config.",
+    "path":     "",
+    "severity": "warning",
+} if {
+    regex.match(`https?://[a-z0-9.-]+\.[a-z]{2,}`, input.workspace.combined_after)
+}
+```
+
+```rego
+# Path-scoped check — fires only for files under api/
+violation contains {
+    "code":     "DB_IN_API_LAYER",
+    "message":  "Database access must not appear in the API layer; use a service module.",
+    "path":     path,
+    "severity": "error",
+} if {
+    some path in input.workspace.changed_paths
+    regex.match(`^api/`, path)
+    contains(input.workspace.files_after[path], "db.session")
+}
+```
+
+Add the matching feedback entry in `.clawtfup/feedback/feedback.yaml`:
+
+```yaml
+NO_HARDCODED_HOST:
+  severity: warning
+  title: Hardcoded hostname detected
+  remediation: >
+    Move hostnames to environment variables (os.environ["SERVICE_HOST"]) or a
+    structured config object. Never inline them in source code.
+```
+
+Full policy authoring guide: **[.clawtfup/policies/README.md](.clawtfup/policies/README.md)**
+
+---
+
+## Indexing baseline
+
+The workspace index uses different baselines depending on the diff source:
+
+| Diff source | Index baseline | Why |
+|:------------|:--------------|:----|
+| Default (`git diff HEAD`) | **git HEAD** + untracked files | Ensures the index matches what git considers committed; consistent across checkouts. |
+| `--diff-file PATH` or stdin | **Disk walk** (working tree) | No git context assumed; reads files as they exist on disk at evaluation time. |
+
+This matters when you have uncommitted files you want policy to see: with the default git source they appear as untracked and are indexed; with an explicit diff file the full working tree is indexed instead.
+
+---
+
 ## Agent rules (summary)
 
 Full spec: **[AGENTS.md](AGENTS.md)**
