@@ -96,11 +96,6 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     ev.add_argument(
-        "--scan-all",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
-    ev.add_argument(
         "--scan-prefix",
         type=str,
         default=None,
@@ -114,11 +109,6 @@ def main(argv: list[str] | None = None) -> int:
         "--no-strict",
         action="store_true",
         help="Exit 0 even when allow is false or there are error-severity findings (default: strict).",
-    )
-    ev.add_argument(
-        "--strict",
-        action="store_true",
-        help=argparse.SUPPRESS,
     )
     ev.add_argument(
         "--pretty",

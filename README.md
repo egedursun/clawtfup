@@ -175,6 +175,10 @@ fi
 
 ```jsonc
 {
+  "schema_version": 1,
+  "evaluation_id": "3f2a1b4c-...",
+  "timestamp": "2025-11-01T12:34:56.789012+00:00",
+  "duration_ms": 142,
   "allow": false,
   "findings": [
     {
@@ -189,30 +193,71 @@ fi
       }
     }
   ],
+  "summary": { "by_severity": { "error": 1 } },
   "inputs": {
+    "workspace": "/absolute/path/to/project",
+    "policy_bundle": "/absolute/path/to/.clawtfup/policies",
+    "opa_data_dir": "/absolute/path/to/.clawtfup/policies/rego",
     "changed_paths": ["src/db/queries.py"],
+    "change_source": "git_head",
     "scan_mode": "full_tree",
-    "change_source": "git_head"
+    "scan_prefix": null,
+    "index_baseline": "git_head",
+    "patch_stats": { "bytes": 312, "lines": 14 },
+    "merged_input_sources": [],
+    "index_warnings": [],
+    "skipped_binary_count": 0,
+    "skipped_large_count": 0
   },
+  "results": { "data.code_edits.report": { "allow": false, "violations": ["..."] } },
+  "engine": { "opa_version": "0.68.0", "queries": ["data.code_edits.report"] },
   "query_errors": []
 }
 ```
 
-### Fields worth parsing
+### Envelope fields
 
-| Path | Meaning |
-|:-----|:--------|
-| `allow` | Policy allow/deny for this snapshot. |
-| `findings[]` | Violations; empty array means clean. |
-| `findings[].code` | Stable identifier; maps to feedback YAML keys. |
-| `findings[].severity` | `"error"` fails strict mode; `"warning"` does not. |
-| `findings[].message` | Short explanation from Rego. |
-| `findings[].path` | File path, when the rule is path-scoped. |
-| `findings[].feedback` | `title`, `remediation`, `references` when configured. |
-| `inputs.changed_paths` | Paths covered by the diff slice. |
-| `inputs.scan_mode` | `full_tree` / `diff_only` / `prefix`. |
-| `inputs.change_source` | `git_head` / `diff_file` / `stdin`. |
-| `query_errors` | OPA or query failures—never treat as pass. |
+| Field | Always present | Meaning |
+|:------|:--------------|:--------|
+| `schema_version` | yes | Integer; currently `1`. |
+| `evaluation_id` | yes | UUID v4 per run; use for log correlation. |
+| `timestamp` | yes | RFC 3339 UTC start time. |
+| `duration_ms` | yes | Wall time of the full evaluation. |
+| `allow` | when `findings_query` set | `true` = clean; `false` = policy denied. |
+| `findings[]` | when violations exist | See table below. |
+| `summary.by_severity` | when findings exist | Count of findings per severity string. |
+| `inputs` | yes | Metadata about what was evaluated (see below). |
+| `results` | yes | Raw OPA output keyed by query string. |
+| `engine` | yes | `opa_version` and `queries` list. |
+| `query_errors[]` | on OPA failure | `{query, error}` objects. Never treat as pass. |
+
+### `inputs` sub-fields
+
+| Field | Meaning |
+|:------|:--------|
+| `workspace` | Absolute path to the project root. |
+| `policy_bundle` | Absolute path to the policies directory. |
+| `opa_data_dir` | Path passed to `opa eval -d` (usually `policies/rego/`). |
+| `changed_paths` | Paths in scope for this evaluation. |
+| `change_source` | `git_head` / `diff_file` / `stdin`. |
+| `scan_mode` | `full_tree` / `diff_only` / `prefix`. |
+| `scan_prefix` | Value of `--scan-prefix`, or `null`. |
+| `index_baseline` | `git_head` (committed tree) or `working_tree` (disk walk). |
+| `patch_stats` | `{bytes, lines}` of the applied diff. |
+| `merged_input_sources` | Files merged via `--input-json` (for audit). |
+| `index_warnings` | Paths that triggered indexing warnings (e.g. read errors). |
+| `skipped_binary_count` | Files skipped because they appeared binary. |
+| `skipped_large_count` | Files skipped for exceeding `--max-file-bytes`. |
+
+### `findings[]` fields
+
+| Field | Meaning |
+|:------|:--------|
+| `code` | Stable identifier; maps to feedback YAML keys. |
+| `severity` | `"error"` fails strict mode; `"warning"` does not. |
+| `message` | Short explanation from Rego. |
+| `path` | Relative POSIX path when rule is file-scoped; `""` for global checks. |
+| `feedback` | `title`, `remediation`, `references` when configured in feedback YAML. |
 
 ---
 
@@ -327,25 +372,59 @@ SQL_FSTRING_QUERY:
 
 ```python
 from pathlib import Path
-from policy_eval.evaluate import EvaluateOptions, evaluate
-
-report = evaluate(
-    EvaluateOptions(
-        workspace=Path("/path/to/project"),
-        bundle_root=Path("/path/to/project/.clawtfup/policies"),
-        patch_text="",           # empty = use git diff HEAD
-        change_source="git_head",
-        index_from_git_head=True,
-        full_scan=True,          # full_tree mode (default CLI behaviour)
-    )
+from policy_eval import (
+    EvaluateOptions,
+    evaluate,
+    ManifestError,
+    OpaEngineError,
+    PatchApplyError,
+    PolicyEvalError,
 )
+
+try:
+    report = evaluate(
+        EvaluateOptions(
+            workspace=Path("/path/to/project"),
+            bundle_root=Path("/path/to/project/.clawtfup/policies"),
+            patch_text="",            # empty string → uses git diff HEAD
+            change_source="git_head",
+            index_from_git_head=True,
+            full_scan=True,           # full_tree mode (default CLI behaviour)
+        )
+    )
+except ManifestError as e:
+    # policy_eval.yaml missing or malformed
+    raise
+except PatchApplyError as e:
+    # unified diff did not apply cleanly (context mismatch)
+    raise
+except OpaEngineError as e:
+    # OPA binary not found or returned non-zero
+    raise
+except PolicyEvalError as e:
+    # catch-all for other evaluation errors
+    raise
 
 if not report["allow"]:
     for f in report["findings"]:
-        print(f["code"], f["message"], f.get("feedback", {}).get("remediation", ""))
+        remediation = (f.get("feedback") or {}).get("remediation", "")
+        print(f["code"], f["severity"], f["message"])
+        if remediation:
+            print("  →", remediation)
 ```
 
 `full_scan=True` mirrors the default CLI. Set `full_scan=False` for diff-only evaluation.
+
+**Custom OPA binary path** — if OPA is not on `PATH` and not at `tools/opa`, pass it explicitly:
+
+```python
+EvaluateOptions(
+    ...
+    opa_binary="/opt/homebrew/bin/opa",
+)
+```
+
+The CLI resolves OPA automatically (`tools/opa` → system `PATH`); the `opa_binary` field is Python API only.
 
 ---
 
