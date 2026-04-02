@@ -11,10 +11,11 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-0f172a?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0f172a?style=flat-square)](LICENSE)
 [![OPA](https://img.shields.io/badge/policy-OPA-0f172a?style=flat-square&logo=openpolicyagent&logoColor=white)](https://www.openpolicyagent.org/)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-hook_ready-0f172a?style=flat-square&logo=anthropic&logoColor=white)](https://claude.ai/code)
 
 **Workspace in. Unified diff in. JSON verdict out.**
 
-OPA evaluates your full tree plus proposed edits—your Rego, your feedback copy, one stdout report.  
+OPA evaluates your full tree plus proposed edits—your Rego, your feedback copy, one stdout report.
 Wire it as a post-hook on any agent turn and your LLM never ships a policy violation silently again.
 
 [AGENTS.md](AGENTS.md) · [Bundled policies](.clawtfup/policies/README.md)
@@ -30,7 +31,7 @@ LLM agents and REPL tools (Claude Code, Cursor, Aider, custom runners) are fast�
 **clawtfup** is the hook layer that closes that gap. You define policy once in Rego; the tool enforces it on every agent turn:
 
 - **Semantic constraints** — e.g. no DB queries in view layers, no circular imports across bounded contexts
-- **Security invariants** — e.g. no `eval`, no pickle, no raw SQL f-strings, no TLS verify disabled
+- **Security invariants** — e.g. no unchecked dynamic code execution, no pickle, no raw SQL f-strings, no TLS verify disabled
 - **Syntactic rules** — e.g. Python 2 syntax leakage, mutable default arguments, dangerous patterns
 - **Your own rules** — `.clawtfup/policies/rego/*.rego` is yours; write any constraint OPA can express
 
@@ -115,20 +116,40 @@ clawtfup evaluate --diff-file - --pretty < proposed.patch
 
 ## Wiring into agents and REPL tools
 
-### Claude Code
+### ![Claude Code](https://img.shields.io/badge/Claude_Code-0f172a?style=flat-square&logo=anthropic&logoColor=white) Claude Code
 
-Add a post-tool hook in `.claude/settings.json` so every file-write turn is evaluated automatically:
+[![PostToolUse — enforcement](https://img.shields.io/badge/PostToolUse-enforcement-16a34a?style=flat-square)](https://docs.anthropic.com/en/docs/claude-code/hooks)
+[![UserPromptSubmit — context](https://img.shields.io/badge/UserPromptSubmit-context-2563eb?style=flat-square)](https://docs.anthropic.com/en/docs/claude-code/hooks)
+[![PTY proxy](https://img.shields.io/badge/CLI_proxy-PTY_aware-0f172a?style=flat-square)](https://docs.anthropic.com/en/docs/claude-code)
+
+clawtfup ships **protocol-aware hook commands** that speak the Claude Code hook JSON protocol natively. Unlike a raw shell command, they read the hook event from stdin, evaluate the workspace, and return a structured response Claude Code understands—blocking the turn, injecting context, or silently passing.
+
+#### Setup
+
+The hooks delegate to shell scripts that handle both venv and global installs. Copy the three files below into your project exactly as shown.
+
+**`.claude/settings.json`**
 
 ```json
 {
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit",
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "clawtfup evaluate --pretty"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/clawtfup-post-tool-use.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/clawtfup-user-prompt-submit.sh"
           }
         ]
       }
@@ -137,9 +158,117 @@ Add a post-tool hook in `.claude/settings.json` so every file-write turn is eval
 }
 ```
 
+> **`"matcher": ""`** matches every tool without exception—`Edit`, `Write`, `MultiEdit`, `Bash`, `NotebookEdit`, and any future tools. Narrowing the matcher creates blind spots.
+
+**`.claude/hooks/clawtfup-post-tool-use.sh`** (chmod +x)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="${CLAUDE_PROJECT_DIR:-}"
+if [[ -z "$ROOT" ]]; then exit 0; fi
+cd "$ROOT" || exit 0
+if [[ -x .venv/bin/python ]]; then
+  exec .venv/bin/python -m policy_eval hook-post-tool-use
+fi
+if command -v clawtfup >/dev/null 2>&1; then
+  exec clawtfup hook-post-tool-use
+fi
+exit 0
+```
+
+**`.claude/hooks/clawtfup-user-prompt-submit.sh`** (chmod +x)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="${CLAUDE_PROJECT_DIR:-}"
+if [[ -z "$ROOT" ]]; then exit 0; fi
+cd "$ROOT" || exit 0
+if [[ -x .venv/bin/python ]]; then
+  exec .venv/bin/python -m policy_eval hook-user-prompt-submit
+fi
+if command -v clawtfup >/dev/null 2>&1; then
+  exec clawtfup hook-user-prompt-submit
+fi
+exit 0
+```
+
+The scripts resolve the runtime in order: **project venv** (`.venv/bin/python`) → **global `clawtfup`** on `PATH`. If neither is found they exit 0 silently, so the hooks are safe to commit to repos where clawtfup isn't yet installed.
+
+```bash
+chmod +x .claude/hooks/clawtfup-post-tool-use.sh \
+         .claude/hooks/clawtfup-user-prompt-submit.sh
+```
+
+#### How the hooks work
+
+**`clawtfup hook-post-tool-use`** ![PostToolUse](https://img.shields.io/badge/PostToolUse-enforcement-16a34a?style=flat-square)
+
+Fires after every tool call. The hook reads the Claude Code event JSON from stdin (which supplies the working directory), runs `clawtfup evaluate` against that workspace, and responds with a decision:
+
+- **Policy pass** → returns empty stdout, exit 0. The tool call proceeds normally.
+- **Policy fail** → returns a JSON block with `"decision": "block"` and a compact findings summary injected into `additionalContext`. Claude Code pauses the turn and shows the agent the violations. The agent receives remediation text and fixes the code before the turn resumes.
+
+```
+POST TOOL USE (Edit/Write)
+        │
+        ▼
+clawtfup hook-post-tool-use ──reads stdin event──▶ runs evaluate
+        │
+        ├── pass  ──▶ empty stdout, exit 0  ──▶ Claude continues
+        │
+        └── fail  ──▶ {"decision":"block","hookSpecificOutput":
+                        {"additionalContext":"<findings + remediation>"}}
+                       Claude pauses, agent reads findings, re-edits
+```
+
+**`clawtfup hook-user-prompt-submit`** ![UserPromptSubmit](https://img.shields.io/badge/UserPromptSubmit-context-2563eb?style=flat-square)
+
+Fires at the start of every user prompt, before the model responds. It evaluates the current workspace and injects a single-line summary into the agent's context window via `additionalContext`. It **never blocks**:
+
+- **Workspace clean** → `"clawtfup: evaluate passed … run clawtfup evaluate --pretty before finishing."`
+- **Workspace dirty** → `"clawtfup: evaluate FAILS. Fix before adding more changes."` followed by a compact findings list.
+
+This keeps the agent continuously aware of the policy state without interrupting the user's message. If the agent enters a broken workspace, it knows before it writes a single line of code.
+
+#### Protocol detail
+
+Both commands write JSON to stdout using the [Claude Code hook output format](https://docs.anthropic.com/en/docs/claude-code/hooks). The payload shape for a block:
+
+```json
+{
+  "decision": "block",
+  "reason": "clawtfup: policy failed (1 error)",
+  "suppressOutput": true,
+  "hookSpecificOutput": {
+    "additionalContext": "- [SQL_FSTRING_QUERY] SQL query built with f-string interpolation (src/db/queries.py)\n  → Use parameterised queries..."
+  }
+}
+```
+
+`additionalContext` is capped at 10 000 characters and lists at most 6 findings so it never saturates the model's context window. Both hooks skip silently (exit 0, no output) when `.clawtfup/policies/` does not exist in the workspace—safe to commit to repos that don't yet use clawtfup.
+
+#### CLI proxy (transparent agent wrapping) ![PTY](https://img.shields.io/badge/I%2FO-PTY_aware-0f172a?style=flat-square)
+
+For scripted orchestration or environments where you launch Claude Code programmatically, clawtfup can act as a **transparent subprocess relay**:
+
+```bash
+clawtfup cli --provider claude -- --dangerously-skip-permissions -p "Fix the auth layer"
+```
+
+This spawns the `claude` binary (or `$CLAWTFUP_CLAUDE_BIN`) with the given arguments and relays all I/O transparently. On a real terminal it opens a PTY—giving the child process full TUI support with terminal size syncing and signal forwarding (including `SIGWINCH`). In a non-TTY context (pipes, CI, scripted runners) it falls back to a three-thread pipe relay for clean stdout/stderr separation.
+
+Policy enforcement in this mode still comes from the `.claude/settings.json` hooks above—the proxy only relays I/O and returns the child's exit code unchanged.
+
+```bash
+# Override the Claude binary
+CLAWTFUP_CLAUDE_BIN=/usr/local/bin/claude clawtfup cli --provider claude -- --help
+```
+
 Or use the bundled slash command at `.claude/commands/noshit.md` which wraps any task description and enforces the gate before marking the task complete.
 
-### Cursor / Aider / custom runners
+### Cursor / Aider / custom runners [![shell integration](https://img.shields.io/badge/integration-shell_hook-0f172a?style=flat-square)]()
 
 Any runner that can shell out after a model turn can integrate clawtfup:
 
@@ -188,7 +317,7 @@ fi
       "path": "src/db/queries.py",
       "feedback": {
         "title": "SQL injection via f-string query",
-        "remediation": "Use parameterised queries. Pass values as a second argument to execute(), never via string formatting.",
+        "remediation": "Use parameterised queries. Pass bound parameters via the DB API, never via string formatting.",
         "references": ["https://docs.python.org/3/library/sqlite3.html"]
       }
     }
@@ -265,26 +394,26 @@ fi
 
 The bundled Rego ruleset (`.clawtfup/policies/rego/`) covers:
 
-**Security — exit 2**
-- Code execution: `eval`, `exec`, `os.system`, `subprocess(shell=True)`, `dynamic import`
+🔴 **Security — exit 2**
+- Code execution: unchecked builtins that run code, implicit-shell process helpers, unchecked dynamic imports
 - Serialisation: `pickle`, `marshal`, unsafe `yaml.load`
 - Injection: SQL f-string queries, SSTI via `render_template_string`, open redirects
 - Auth / transport: TLS verify disabled, JWT verify disabled, CSRF, insecure cookies, CORS misconfig
 - Secrets: AWS keys, API tokens, passwords in comments or code
 
-**Portability — exit 2**
-- Python 2 syntax leakage: `print` statements, `except E, e`, `iteritems`, `has_key`, `unicode`, `basestring`, `xrange`, `raw_input`, octal literals, long integer suffix
+🔴 **Portability — exit 2**
+- Python 2 syntax leakage: legacy print form, comma-style except binding, Py2 dict helpers and text types, old octal forms without the modern prefix, long-integer suffixes, and related holdovers
 
-**Design — warnings**
-- Anti-patterns: `range(len(...))`, mutable default arguments, `global` in functions, bare `except: pass` on `ImportError`
+🟡 **Design — warnings**
+- Anti-patterns: indexing via **range** over **len**(sequence), mutable default arguments, `global` in functions, bare `except: pass` on `ImportError`
 - Threading: daemon thread creation, unsafe hash in dataclasses
 - LBYL: `os.path.exists` before open instead of EAFP
 
-**Architecture — warnings**
+🟡 **Architecture — warnings**
 - Database calls in view/route layers
 - Circular import patterns
 
-**Style — warnings**
+🟡 **Style — warnings**
 - Lines > 120 characters, leading/trailing tabs
 
 All rules are overridable or replaceable—`.clawtfup/` is yours.
@@ -292,6 +421,17 @@ All rules are overridable or replaceable—`.clawtfup/` is yours.
 ---
 
 ## CLI reference
+
+clawtfup exposes four top-level subcommands:
+
+| Subcommand | Purpose |
+|:-----------|:--------|
+| `clawtfup evaluate [options]` | 🔍 Run policy evaluation; the primary command for agents and CI. |
+| `clawtfup hook-post-tool-use` | 🟢 Claude Code PostToolUse hook handler. Reads hook JSON from stdin; blocks on policy failure. |
+| `clawtfup hook-user-prompt-submit` | 🔵 Claude Code UserPromptSubmit hook handler. Injects ambient evaluation context; never blocks. |
+| `clawtfup cli --provider NAME [-- args…]` | 🔀 Transparent agent CLI proxy. Spawns the named agent (e.g. `claude`) with full I/O relay. |
+
+### `clawtfup evaluate`
 
 ```text
 clawtfup evaluate [options]
@@ -318,6 +458,41 @@ clawtfup evaluate [options]
 **Exit codes:** `0` = strict pass · `2` = policy denial or error findings · other = bad input, bundle, or OPA failure.
 
 </details>
+
+### `clawtfup hook-post-tool-use`
+
+Reads a Claude Code hook event object from stdin. Resolves the workspace from the event's `cwd` field, runs `clawtfup evaluate`, and writes a Claude Code hook response to stdout:
+
+- **Pass** → empty stdout, exit 0.
+- **Fail** → JSON with `"decision": "block"`, a short reason string, and up to 6 compact findings in `hookSpecificOutput.additionalContext`.
+
+No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
+
+### `clawtfup hook-user-prompt-submit`
+
+Same stdin protocol as above. Always exits 0 and never sets `decision: block`. Injects a one-line workspace status plus findings (on failure) into `hookSpecificOutput.additionalContext`.
+
+No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
+
+### `clawtfup cli --provider NAME`
+
+```text
+clawtfup cli --provider claude [--workspace DIR] [-- agent-args…]
+```
+
+| Flag | Default | Effect |
+|:-----|:--------|:-------|
+| `--provider NAME` | required | Agent name. Currently `claude` (maps to the `claude` binary). |
+| `--workspace DIR` | cwd | Workspace root; validated against `.clawtfup/policies/`. |
+| `--` | — | Separator; everything after is forwarded verbatim to the agent binary. |
+
+**Binary resolution order:** `--` argument → `$CLAWTFUP_CLAUDE_BIN` env var → `claude` on `PATH`.
+
+**I/O mode selection:**
+- Stdin is a real TTY (interactive terminal) → PTY mode: opens a pseudo-terminal, syncs window size, forwards `SIGWINCH`, relays raw bytes. Full TUI support.
+- Stdin is not a TTY (pipe, CI, script) → pipe mode: three relay threads for stdin, stdout, and stderr. Clean separation; no PTY overhead.
+
+Returns the child process exit code unchanged.
 
 ---
 
@@ -361,7 +536,7 @@ findings_query: data.code_edits.report
 SQL_FSTRING_QUERY:
   severity: error
   title: SQL injection via f-string query
-  remediation: Use parameterised queries. Pass values as a second argument to execute().
+  remediation: Use parameterised queries. Pass bound parameters via the DB API.
   references:
     - https://docs.python.org/3/library/sqlite3.html
 ```
