@@ -273,47 +273,198 @@ CLAWTFUP_CLAUDE_BIN=/usr/local/bin/claude clawtfup cli --provider claude -- --he
 
 Or use the bundled slash command at `.claude/commands/noshit.md` which wraps any task description and enforces the gate before marking the task complete.
 
-#### OpenAI Codex [![Codex hooks](https://img.shields.io/badge/Codex-hooks.json-0f172a?style=flat-square)](https://developers.openai.com/codex/hooks/)
+---
 
-Enable Codex hooks in `config.toml` (user or project layer):
+### ![OpenAI Codex](https://img.shields.io/badge/OpenAI_Codex-0f172a?style=flat-square&logo=openai&logoColor=white) OpenAI Codex
+
+[![PostToolUse — enforcement](https://img.shields.io/badge/PostToolUse-enforcement-16a34a?style=flat-square)](https://developers.openai.com/codex/hooks/)
+[![UserPromptSubmit — context](https://img.shields.io/badge/UserPromptSubmit-context-2563eb?style=flat-square)](https://developers.openai.com/codex/hooks/)
+[![PTY proxy](https://img.shields.io/badge/CLI_proxy-PTY_aware-0f172a?style=flat-square)]()
+
+Codex ships a native hook protocol that mirrors Claude Code's exactly — the same `PostToolUse` and `UserPromptSubmit` events, the same JSON contract on stdin, and the same `decision: block` / `additionalContext` response shape. clawtfup speaks this protocol natively via dedicated Codex hook commands, giving you turn-level blocking and ambient context injection with zero custom glue code.
+
+> **Note:** Codex hooks are experimental and currently [disabled on Windows](https://developers.openai.com/codex/hooks/) as of upstream docs. Linux and macOS are fully supported.
+
+#### Setup
+
+**Step 1 — Enable hooks in `config.toml`**
+
+Add the following to your user-level (`~/.codex/config.toml`) or project-level (`<repo>/.codex/config.toml`) config:
 
 ```toml
 [features]
 codex_hooks = true
 ```
 
-Copy or merge the sample [`.codex/hooks.json`](.codex/hooks.json) into your Codex config search path (for example `~/.codex/hooks.json` or `<repo>/.codex/hooks.json`). It invokes the shell wrappers under [`.codex/hooks/`](.codex/hooks/), which mirror the Claude flow: **`.venv/bin/python`** first, then **`clawtfup`** on `PATH`.
+**Step 2 — Wire the hook commands**
+
+Copy or merge [`.codex/hooks.json`](.codex/hooks.json) into your Codex config search path (`~/.codex/hooks.json` or `<repo>/.codex/hooks.json`):
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/clawtfup-codex-post-tool-use.sh\"",
+            "statusMessage": "clawtfup: policy after tool use"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/clawtfup-codex-user-prompt-submit.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+> **`"matcher": ""`** matches every tool without exception. Narrowing the matcher creates blind spots.
+
+**Step 3 — Copy the shell wrappers**
+
+Copy [`.codex/hooks/clawtfup-codex-post-tool-use.sh`](.codex/hooks/clawtfup-codex-post-tool-use.sh) and [`.codex/hooks/clawtfup-codex-user-prompt-submit.sh`](.codex/hooks/clawtfup-codex-user-prompt-submit.sh) into your project.
+
+**`.codex/hooks/clawtfup-codex-post-tool-use.sh`** (chmod +x)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$ROOT" ]]; then exit 0; fi
+cd "$ROOT" || exit 0
+if [[ -x .venv/bin/python ]]; then
+  exec .venv/bin/python -m policy_eval hook-codex-post-tool-use
+fi
+if command -v clawtfup >/dev/null 2>&1; then
+  exec clawtfup hook-codex-post-tool-use
+fi
+exit 0
+```
+
+**`.codex/hooks/clawtfup-codex-user-prompt-submit.sh`** (chmod +x)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$ROOT" ]]; then exit 0; fi
+cd "$ROOT" || exit 0
+if [[ -x .venv/bin/python ]]; then
+  exec .venv/bin/python -m policy_eval hook-codex-user-prompt-submit
+fi
+if command -v clawtfup >/dev/null 2>&1; then
+  exec clawtfup hook-codex-user-prompt-submit
+fi
+exit 0
+```
+
+The scripts resolve the runtime in order: **project venv** (`.venv/bin/python`) → **global `clawtfup`** on `PATH`. If neither is found they exit 0 silently — safe to commit to repos where clawtfup isn't yet installed.
 
 ```bash
 chmod +x .codex/hooks/clawtfup-codex-post-tool-use.sh \
          .codex/hooks/clawtfup-codex-user-prompt-submit.sh
 ```
 
-| Subcommand | Role |
-|:-----------|:-----|
-| `clawtfup hook-codex-post-tool-use` | After a tool run: evaluate; on failure return `decision: block` plus `hookSpecificOutput.additionalContext` ([Codex PostToolUse](https://developers.openai.com/codex/hooks/)). |
-| `clawtfup hook-codex-user-prompt-submit` | On each user prompt: inject pass/fail summary via `additionalContext` only (no block). |
+#### How the hooks work
 
-**CLI proxy** (same PTY / pipe relay as Claude):
+**`clawtfup hook-codex-post-tool-use`** ![PostToolUse](https://img.shields.io/badge/PostToolUse-enforcement-16a34a?style=flat-square)
 
-```bash
-clawtfup cli --provider codex -- --help
+Fires after every tool call. Reads the Codex hook event JSON from stdin, runs `clawtfup evaluate` against the workspace, and responds with a decision:
+
+- **Policy pass** → empty stdout, exit 0. The tool call proceeds normally.
+- **Policy fail** → JSON with `"decision": "block"` and a compact findings summary in `additionalContext`. Codex pauses the turn; the agent receives the violations and remediation text, fixes the code, and the turn resumes.
+
+```
+POST TOOL USE (file edit / shell command)
+        │
+        ▼
+clawtfup hook-codex-post-tool-use ──reads stdin event──▶ runs evaluate
+        │
+        ├── pass  ──▶ empty stdout, exit 0  ──▶ Codex continues
+        │
+        └── fail  ──▶ {"decision":"block","hookSpecificOutput":
+                        {"additionalContext":"<findings + remediation>"}}
+                       Codex pauses, agent reads findings, re-edits
 ```
 
-Spawns the `codex` binary (or `$CLAWTFUP_CODEX_BIN`) with the given arguments (for example non-interactive `codex exec …` or the default TUI). Policy still comes from `hooks.json`, not from the proxy.
+**`clawtfup hook-codex-user-prompt-submit`** ![UserPromptSubmit](https://img.shields.io/badge/UserPromptSubmit-context-2563eb?style=flat-square)
+
+Fires at the start of every user prompt, before the model responds. Evaluates the current workspace and injects a one-line status into the agent's context via `additionalContext`. It **never blocks**:
+
+- **Workspace clean** → `"clawtfup: evaluate passed … run clawtfup evaluate --pretty before finishing."`
+- **Workspace dirty** → `"clawtfup: evaluate FAILS. Fix before adding more changes."` followed by a compact findings list.
+
+The agent enters every turn already aware of the workspace policy state — it knows about violations before writing a single line of code.
+
+#### Protocol detail
+
+Both commands speak the same JSON protocol as the Claude Code hooks. The block payload shape:
+
+```json
+{
+  "decision": "block",
+  "reason": "clawtfup: policy failed (1 error)",
+  "suppressOutput": true,
+  "hookSpecificOutput": {
+    "additionalContext": "- [SQL_FSTRING_QUERY] SQL query built with f-string interpolation (src/db/queries.py)\n  → Use parameterised queries..."
+  }
+}
+```
+
+`additionalContext` is capped at 10 000 characters and lists at most 6 findings. Both hooks exit 0 silently when `.clawtfup/policies/` does not exist.
+
+#### CLI proxy (transparent agent wrapping) ![PTY](https://img.shields.io/badge/I%2FO-PTY_aware-0f172a?style=flat-square)
+
+For scripted orchestration or non-interactive pipelines, clawtfup can wrap the Codex binary as a **transparent subprocess relay**:
 
 ```bash
+clawtfup cli --provider codex -- exec "Fix the auth layer"
+```
+
+Spawns the `codex` binary (or `$CLAWTFUP_CODEX_BIN`) with the given arguments and relays all I/O transparently. On a real terminal it opens a PTY for full TUI support with terminal size syncing and signal forwarding. In non-TTY contexts (pipes, CI) it falls back to a three-thread pipe relay.
+
+Policy enforcement in this mode still comes from `hooks.json` — the proxy only relays I/O and returns the child's exit code unchanged.
+
+```bash
+# Override the Codex binary
 CLAWTFUP_CODEX_BIN=/opt/homebrew/bin/codex clawtfup cli --provider codex -- --help
 ```
 
-Codex hooks are experimental and [disabled on Windows](https://developers.openai.com/codex/hooks/) as of current upstream docs.
+---
 
 ### ![Cursor](https://img.shields.io/badge/Cursor-0f172a?style=flat-square&logo=cursor&logoColor=white) Cursor
 
-[![Agent Rules — enforcement](https://img.shields.io/badge/Agent_Rules-enforcement-16a34a?style=flat-square)]()
-[![Terminal hook — shell](https://img.shields.io/badge/Terminal_hook-shell-2563eb?style=flat-square)]()
+[![hooks.json](https://img.shields.io/badge/hooks.json-lifecycle-16a34a?style=flat-square)](https://cursor.com/docs/agent/hooks)
+[![Agent Rules](https://img.shields.io/badge/Agent_Rules-context-2563eb?style=flat-square)]()
 
-Cursor does not expose a native turn-level hook protocol, so clawtfup integrates through two complementary layers: **Agent Rules** that make the model enforce the gate itself, and an optional **terminal hook script** that catches anything the agent misses or skips.
+Cursor supports **lifecycle hooks** via [`.cursor/hooks.json`](https://cursor.com/docs/agent/hooks) (same content is available in other locales, e.g. [cursor.com/tr/docs/hooks](https://cursor.com/tr/docs/hooks)). This repo ships a sample [`.cursor/hooks.json`](.cursor/hooks.json) plus shell entrypoints under [`.cursor/hooks/`](.cursor/hooks/) (resolve `.venv/bin/python` or `clawtfup` on `PATH`, same pattern as Claude/Codex).
+
+```bash
+chmod +x .cursor/hooks/clawtfup-cursor-before-submit-prompt.sh \
+         .cursor/hooks/clawtfup-cursor-after-file-edit.sh \
+         .cursor/hooks/clawtfup-cursor-stop.sh
+```
+
+| Subcommand | Cursor event | Behavior |
+|:-----------|:-------------|:---------|
+| `clawtfup hook-cursor-before-submit-prompt` | `beforeSubmitPrompt` | Runs evaluate; if policy fails, stdout is `{"continue": false, "userMessage": "…"}`, which stops the prompt from being sent until the workspace is clean. |
+| `clawtfup hook-cursor-after-file-edit` | `afterFileEdit` | Runs evaluate after each AI edit; on failure exits **2** and writes compact findings to **stderr** (Hooks output channel). Cursor does not document a blocking JSON response for this event—the agent may still continue. |
+| `clawtfup hook-cursor-stop` | `stop` | When `status` is `completed`, runs evaluate; exits **2** on failure so the hook run is visibly failed. |
+
+Copy or merge `.cursor/hooks.json` into your project or into `~/.cursor/hooks.json` if you want the gate globally. Remove the `afterFileEdit` entry if full-tree evaluate after every edit is too slow.
+
+Use **Output → Hooks** in Cursor to debug hook JSON and exit codes.
 
 #### Layer 1 — Agent Rules (`.cursor/rules`)
 
@@ -343,44 +494,20 @@ Rules:
 
 > **`alwaysApply: true`** ensures the rule is active for every chat and Composer session, not just when Cursor infers it is relevant. Omitting this creates blind spots.
 
-#### Layer 2 — Terminal hook script
+#### Layer 2 — Optional manual / CI script
 
-For scripted workflows or as a backstop when the agent rule is insufficient, wire clawtfup directly into your shell or editor save hooks.
+For workflows that are not going through Cursor hooks, you can still run `clawtfup evaluate` from a shell after edits (same exit-code contract as everywhere else in this README).
 
-**`.cursor/hooks/clawtfup-post-edit.sh`** (chmod +x)
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-ROOT="${CURSOR_WORKSPACE_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-cd "$ROOT" || exit 0
-if [[ -x .venv/bin/python ]]; then
-  exec .venv/bin/python -m policy_eval evaluate --pretty
-fi
-if command -v clawtfup >/dev/null 2>&1; then
-  exec clawtfup evaluate --pretty
-fi
-exit 0
-```
-
-```bash
-chmod +x .cursor/hooks/clawtfup-post-edit.sh
-```
-
-Run it explicitly after applying edits, or bind it to your editor's on-save trigger:
-
-```bash
-# After applying model edits to disk
-.cursor/hooks/clawtfup-post-edit.sh
-if [ $? -ne 0 ]; then
-  clawtfup evaluate --pretty | jq '.findings[] | {code, message, remediation: .feedback.remediation}'
-fi
-```
-
-#### How the two layers interact
+#### How the layers interact
 
 ```
 Cursor agent turn (Composer / Chat)
+        │
+        ├── hooks.json: beforeSubmitPrompt ──▶ evaluate; may block prompt (continue: false)
+        │
+        ├── hooks.json: afterFileEdit ──────▶ evaluate; stderr / exit 2 on failure
+        │
+        ├── hooks.json: stop (completed) ──▶ evaluate; exit 2 on failure
         │
         ▼
 Agent Rule: "run clawtfup evaluate --pretty before finishing"
@@ -388,14 +515,9 @@ Agent Rule: "run clawtfup evaluate --pretty before finishing"
         ├── pass (exit 0)  ──▶ agent marks task complete
         │
         └── fail (exit 2)  ──▶ agent reads findings[], fixes code, re-runs
-                                (cycle continues until workspace is clean)
-
-        ┊  (backstop)
-        ▼
-clawtfup-post-edit.sh  ──▶ same evaluate call, same exit-code contract
 ```
 
-The agent rule handles the autonomous loop. The shell script is your safety net for manual verification, CI integration, or editor save hooks.
+Native hooks give deterministic enforcement; rules keep the model reminded between hook boundaries.
 
 #### CI gate
 
@@ -427,7 +549,7 @@ fi
 | **Saved diff file** | `clawtfup evaluate --diff-file /tmp/p.patch --pretty` | Diff written to temp file by orchestrator. |
 | **CI gate** | `clawtfup evaluate` (no `--pretty`) | GitHub Actions / pre-merge; exit code drives pass/fail. |
 | **Prefix scan** | `clawtfup evaluate --scan-prefix src/api --pretty` | Large monorepo; gate only the changed bounded context. |
-| **Cursor** | `.cursor/rules/clawtfup.mdc` + `clawtfup-post-edit.sh` | Agent rule enforces the gate; shell script backstops it. |
+| **Cursor** | `.cursor/hooks.json` + `hook-cursor-*` + `.cursor/rules/clawtfup.mdc` | Lifecycle hooks + optional agent rule. |
 | **OpenAI Codex** | `clawtfup cli --provider codex -- …` + `.codex/hooks.json` | Transparent proxy plus `hook-codex-*` commands wired like Claude hooks. |
 
 ### Hook contract

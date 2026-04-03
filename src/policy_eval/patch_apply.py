@@ -94,7 +94,12 @@ def _apply_hunks(
             if line.is_context:
                 if src_idx >= len(base_lines):
                     raise PatchApplyError("Unexpected end of file in context line")
-                if base_lines[src_idx] != line.value:
+                base_val = base_lines[src_idx]
+                diff_val = line.value
+                if (
+                    base_val != diff_val
+                    and base_val.rstrip("\n") != diff_val.rstrip("\n")
+                ):
                     raise PatchApplyError(
                         f"Context mismatch at source line {src_idx + 1}"
                     )
@@ -103,7 +108,12 @@ def _apply_hunks(
             elif line.is_removed:
                 if src_idx >= len(base_lines):
                     raise PatchApplyError("Unexpected end of file in removal")
-                if base_lines[src_idx] != line.value:
+                base_val = base_lines[src_idx]
+                diff_val = line.value
+                if (
+                    base_val != diff_val
+                    and base_val.rstrip("\n") != diff_val.rstrip("\n")
+                ):
                     raise PatchApplyError(
                         f"Remove mismatch at source line {src_idx + 1}"
                     )
