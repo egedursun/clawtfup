@@ -9,7 +9,12 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-0f172a?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0f172a?style=flat-square)](LICENSE)
 [![OPA](https://img.shields.io/badge/policy-OPA-0f172a?style=flat-square&logo=openpolicyagent&logoColor=white)](https://www.openpolicyagent.org/)
+
 [![Claude Code](https://img.shields.io/badge/Claude_Code-hook_ready-0f172a?style=flat-square&logo=anthropic&logoColor=white)](https://claude.ai/code)
+[![Codex](https://img.shields.io/badge/OpenAI_Codex-hook_ready-0f172a?style=flat-square&logo=openai&logoColor=white)](https://openai.com/codex)
+[![Gemini CLI](https://img.shields.io/badge/Gemini_CLI-hook_ready-0f172a?style=flat-square&logo=googlegemini&logoColor=white)](https://github.com/google-gemini/gemini-cli)
+[![Cursor](https://img.shields.io/badge/Cursor-hook_ready-0f172a?style=flat-square&logo=cursor&logoColor=white)](https://cursor.com)
+[![VS Code](https://img.shields.io/badge/VS_Code_%2F_Antigravity-hook_ready-0f172a?style=flat-square&logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com)
 
 **Your LLM agent cannot ship a policy violation. Not accidentally. Not silently. Not ever.**
 
@@ -50,28 +55,29 @@ The feedback loop is designed for autonomy: exit **2** returns structured findin
 flowchart LR
   subgraph turn["Agent turn"]
     LLM["LLM / REPL tool"]
-    Diff["Unified diff\nor git state"]
+    State["Workspace state\n(disk) or diff (optional)"]
     Gate["clawtfup evaluate"]
-    LLM --> Diff
-    Diff --> Gate
+    LLM --> State
+    State --> Gate
   end
   Gate -->|"exit 0\n allow: true"| Ship["Apply / continue\nto next task"]
   Gate -->|"exit 2\n findings[]"| Fix["Parse findings JSON\n+ remediation → re-prompt"]
   Fix --> LLM
 ```
 
-**Pre-hook vs post-hook.** clawtfup runs *after* the model proposes edits and *before* they land on disk or merge. That makes it a **post-LLM / pre-apply hook**—the natural enforcement point. You can also run it in CI as a **pre-merge gate**, catching anything that slipped through local hooks.
+**Pre-hook vs post-hook.** clawtfup runs *after* the model proposes edits and *before* they land on disk or merge. That makes it a **post-LLM / pre-apply hook**—the natural enforcement point. By default it evaluates the **current disk state** with no diff; you can also pipe in a unified diff to evaluate a proposed change before it's even written. Run it in CI as a **pre-merge gate** to catch anything that slipped through local hooks.
 
 ```
-┌────────────────────────────────────────────────────┐
-│  Agent orchestrator (Claude Code, Cursor, custom)  │
-│                                                    │
-│  pre-hook     → validate task / context            │
-│  [LLM turn]   → generate edits                     │
-│  post-hook    → clawtfup evaluate ← you are here   │
-│  on exit 0    → apply / commit / continue          │
-│  on exit 2    → feed findings back, re-run turn    │
-└────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  Agent (Claude Code · Codex · Gemini · Cursor · VS Code · Aider) │
+│                                                                  │
+│  pre-hook      → inject workspace status (UserPromptSubmit /     │
+│                  BeforeAgent / beforeSubmitPrompt)               │
+│  [LLM turn]    → model edits files                               │
+│  post-hook     → clawtfup evaluate ← enforcement point           │
+│  on exit 0     → continue / apply / commit                       │
+│  on exit 2     → findings + remediation fed back; model fixes    │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -443,6 +449,70 @@ CLAWTFUP_CODEX_BIN=/opt/homebrew/bin/codex clawtfup cli --provider codex -- --he
 
 ---
 
+### ![Gemini CLI](https://img.shields.io/badge/Gemini_CLI-0f172a?style=flat-square&logo=googlegemini&logoColor=white) Gemini CLI
+
+[![AfterTool — enforcement](https://img.shields.io/badge/AfterTool-enforcement-16a34a?style=flat-square)](https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/reference.md)
+[![BeforeAgent — context](https://img.shields.io/badge/BeforeAgent-context-2563eb?style=flat-square)](https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/reference.md)
+[![CLI proxy](https://img.shields.io/badge/CLI_proxy-PTY_aware-0f172a?style=flat-square)]()
+
+The [Gemini CLI](https://github.com/google-gemini/gemini-cli) hook system uses **`AfterTool`** (after a tool runs) and **`BeforeAgent`** (after the user submits a prompt, before planning)—the same JSON on stdin (`cwd`, `hook_event_name`, …) and stdout as other lifecycle hooks in that tool. clawtfup maps them to **`hook-gemini-after-tool`** and **`hook-gemini-before-agent`**: evaluate on failure after a tool yields `decision: "deny"` plus `hookSpecificOutput.additionalContext` (per the [hooks reference](https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/reference.md)); BeforeAgent only injects context and never denies the prompt.
+
+#### Setup
+
+**Step 1 — Wire hooks in `settings.json`**
+
+Copy or merge [`.gemini/settings.json`](.gemini/settings.json) into your project (or merge the `hooks` object into an existing `~/.gemini/settings.json` / `<repo>/.gemini/settings.json`).
+
+**Step 2 — Copy the shell wrappers**
+
+Copy [`.gemini/hooks/clawtfup-gemini-after-tool.sh`](.gemini/hooks/clawtfup-gemini-after-tool.sh) and [`.gemini/hooks/clawtfup-gemini-before-agent.sh`](.gemini/hooks/clawtfup-gemini-before-agent.sh) into your project, then:
+
+```bash
+chmod +x .gemini/hooks/clawtfup-gemini-after-tool.sh \
+         .gemini/hooks/clawtfup-gemini-before-agent.sh
+```
+
+The wrappers resolve the repo root via `git rev-parse --show-toplevel`, then run `python -m policy_eval hook-gemini-after-tool` / `hook-gemini-before-agent` (or `clawtfup` on `PATH`).
+
+#### CLI proxy
+
+```bash
+clawtfup cli --provider gemini -- --help
+```
+
+Spawns the `gemini` binary (or `$CLAWTFUP_GEMINI_BIN`) with PTY relay on an interactive terminal, same as Claude and Codex. Policy still comes from `.gemini/settings.json` hooks.
+
+```bash
+CLAWTFUP_GEMINI_BIN=/path/to/gemini clawtfup cli --provider gemini -- --help
+```
+
+---
+
+### ![Antigravity / VS Code](https://img.shields.io/badge/Antigravity_%2F_VS_Code-0f172a?style=flat-square&logo=visualstudiocode&logoColor=white) Google Antigravity & VS Code agent hooks
+
+[![PostToolUse — enforcement](https://img.shields.io/badge/PostToolUse-enforcement-16a34a?style=flat-square)](https://code.visualstudio.com/docs/copilot/customization/hooks)
+[![UserPromptSubmit — context](https://img.shields.io/badge/UserPromptSubmit-context-2563eb?style=flat-square)](https://code.visualstudio.com/docs/copilot/customization/hooks)
+[![Stop — session gate](https://img.shields.io/badge/Stop-session_gate-dc2626?style=flat-square)](https://code.visualstudio.com/docs/copilot/customization/hooks)
+
+[Google Antigravity](https://antigravity.im/documentation) is a VS Code–based agentic IDE. **VS Code (Preview)** loads workspace hooks from [`.github/hooks/*.json`](https://code.visualstudio.com/docs/copilot/customization/hooks) with the same lifecycle names as Claude Code (`PostToolUse`, `UserPromptSubmit`, `Stop`, …). clawtfup ships [`.github/hooks/clawtfup.json`](.github/hooks/clawtfup.json) plus shell wrappers:
+
+- **`PostToolUse` / `UserPromptSubmit`** → `hook-codex-post-tool-use` and `hook-codex-user-prompt-submit` (no `suppressOutput`; matches VS Code’s PostToolUse JSON examples). Stdin may use **`hookEventName`** (camelCase); clawtfup accepts that as well as `hook_event_name`.
+- **`Stop`** → **`hook-vscode-stop`**: if evaluate fails, stdout JSON uses `hookSpecificOutput.decision: "block"` and `reason` so the session cannot end until policy passes. When `stop_hook_active` is already true, the hook no-ops to avoid retry loops (per VS Code docs).
+
+#### Setup
+
+Copy [`.github/hooks/clawtfup.json`](.github/hooks/clawtfup.json) and the [`clawtfup-vscode-*.sh`](.github/hooks/) scripts into your repo, then:
+
+```bash
+chmod +x .github/hooks/clawtfup-vscode-post-tool-use.sh \
+         .github/hooks/clawtfup-vscode-user-prompt-submit.sh \
+         .github/hooks/clawtfup-vscode-stop.sh
+```
+
+Ensure **Agent hooks** are enabled in the product (VS Code: Copilot agent hooks preview; Antigravity: follow current release notes). Hook discovery uses the default `chat.hookFilesLocations` unless you customize it.
+
+---
+
 ### ![Cursor](https://img.shields.io/badge/Cursor-0f172a?style=flat-square&logo=cursor&logoColor=white) Cursor
 
 [![beforeSubmitPrompt — enforcement](https://img.shields.io/badge/beforeSubmitPrompt-enforcement-16a34a?style=flat-square)](https://cursor.com/docs/agent/hooks)
@@ -647,6 +717,8 @@ fi
 | **Prefix scan** | `clawtfup evaluate --scan-prefix src/api --pretty` | Large monorepo; gate only the changed bounded context. |
 | **Cursor** | `.cursor/hooks.json` + `hook-cursor-*` commands | Native lifecycle hooks: gate prompts, check every edit, enforce on completion. |
 | **OpenAI Codex** | `clawtfup cli --provider codex -- …` + `.codex/hooks.json` | Transparent proxy plus `hook-codex-*` commands wired like Claude hooks. |
+| **Gemini CLI** | `clawtfup cli --provider gemini -- …` + `.gemini/settings.json` | Transparent proxy plus `hook-gemini-after-tool` / `hook-gemini-before-agent` for `AfterTool` / `BeforeAgent`. |
+| **Antigravity / VS Code** | `.github/hooks/clawtfup.json` + wrappers | `hook-codex-*` for `PostToolUse` / `UserPromptSubmit`; `hook-vscode-stop` for `Stop`. |
 
 ### Hook contract
 
@@ -783,14 +855,22 @@ All rules are overridable or replaceable—`.clawtfup/` is yours.
 
 ## CLI reference
 
-clawtfup exposes four top-level subcommands:
+clawtfup exposes the following subcommands:
 
-| Subcommand | Purpose |
-|:-----------|:--------|
-| `clawtfup evaluate [options]` | 🔍 Run policy evaluation; the primary command for agents and CI. |
-| `clawtfup hook-post-tool-use` | 🟢 Claude Code PostToolUse hook handler. Reads hook JSON from stdin; blocks on policy failure. |
-| `clawtfup hook-user-prompt-submit` | 🔵 Claude Code UserPromptSubmit hook handler. Injects ambient evaluation context; never blocks. |
-| `clawtfup cli --provider NAME [-- args…]` | 🔀 Transparent agent CLI proxy. Spawns the named agent (e.g. `claude`) with full I/O relay. |
+| Subcommand | Provider | Event | Behaviour |
+|:-----------|:---------|:------|:----------|
+| `clawtfup evaluate [options]` | all / CI | — | 🔍 Run policy evaluation directly. Primary command for agents and CI. |
+| `clawtfup hook-post-tool-use` | Claude Code | PostToolUse | 🟢 Blocks turn on policy failure (`decision: block`). |
+| `clawtfup hook-user-prompt-submit` | Claude Code | UserPromptSubmit | 🔵 Injects workspace status; never blocks. |
+| `clawtfup hook-codex-post-tool-use` | OpenAI Codex | PostToolUse | 🟢 Same block protocol as Claude Code. Also used by VS Code PostToolUse. |
+| `clawtfup hook-codex-user-prompt-submit` | OpenAI Codex | UserPromptSubmit | 🔵 Injects status; never blocks. Also used by VS Code UserPromptSubmit. |
+| `clawtfup hook-gemini-after-tool` | Gemini CLI | AfterTool | 🟢 Blocks on failure (`decision: deny`). |
+| `clawtfup hook-gemini-before-agent` | Gemini CLI | BeforeAgent | 🔵 Injects status; never denies. |
+| `clawtfup hook-cursor-before-submit-prompt` | Cursor | beforeSubmitPrompt | 🟢 Returns `{"continue": false}` + findings on failure; blocks the prompt. |
+| `clawtfup hook-cursor-after-file-edit` | Cursor | afterFileEdit | 🟢 Exit 2 + stderr findings on failure; visible in Output → Hooks. |
+| `clawtfup hook-cursor-stop` | Cursor | stop | 🔴 Exit 2 on failure; marks session failed as a final gate. |
+| `clawtfup hook-vscode-stop` | VS Code / Antigravity | Stop | 🔴 Blocks session end (`hookSpecificOutput.decision: block`). |
+| `clawtfup cli --provider NAME [-- args…]` | all | — | 🔀 Transparent proxy — spawns `claude`, `codex`, or `gemini` with PTY-aware I/O relay. |
 
 ### `clawtfup evaluate`
 
@@ -832,23 +912,81 @@ No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
 
 ### `clawtfup hook-user-prompt-submit`
 
-Same stdin protocol as above. Always exits 0 and never sets `decision: block`. Injects a one-line workspace status plus findings (on failure) into `hookSpecificOutput.additionalContext`.
+Same stdin protocol as `hook-post-tool-use`. Always exits 0 and never sets `decision: block`. Injects a one-line workspace status plus compact findings (on failure) into `hookSpecificOutput.additionalContext`.
+
+No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
+
+### `clawtfup hook-codex-post-tool-use`
+
+OpenAI Codex equivalent of `hook-post-tool-use`. Reads a Codex `PostToolUse` event from stdin; on failure returns `decision: block` with `additionalContext` (no `suppressOutput` field, per Codex spec). Also handles VS Code `PostToolUse` events — both providers use the same stdin/stdout shape.
+
+No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
+
+### `clawtfup hook-codex-user-prompt-submit`
+
+OpenAI Codex / VS Code equivalent of `hook-user-prompt-submit`. Injects workspace status; never blocks. Also handles VS Code `UserPromptSubmit` and accepts both `hook_event_name` (snake_case) and `hookEventName` (camelCase) in the event envelope.
+
+No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
+
+### `clawtfup hook-gemini-after-tool`
+
+Reads a Gemini CLI `AfterTool` event from stdin. On policy failure returns `{"decision": "deny", "hookSpecificOutput": {"additionalContext": "..."}}`. On pass exits 0 with no output.
+
+No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
+
+### `clawtfup hook-gemini-before-agent`
+
+Reads a Gemini CLI `BeforeAgent` event from stdin. Injects a compact workspace status into `additionalContext`. Never denies the prompt. Workspace path resolved from the event's `cwd` field.
+
+No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
+
+### `clawtfup hook-cursor-before-submit-prompt`
+
+Reads a Cursor `beforeSubmitPrompt` event from stdin. Workspace root resolved from `workspace_roots[0]` or `cwd`.
+
+- **Pass** → `{"continue": true}`. Prompt proceeds.
+- **Fail** → `{"continue": false, "userMessage": "<compact findings>"}`. Cursor surfaces violations; the prompt is blocked.
+
+No flags. Falls back to `{"continue": true}` when `.clawtfup/policies/` does not exist.
+
+### `clawtfup hook-cursor-after-file-edit`
+
+Reads a Cursor `afterFileEdit` event from stdin. Evaluates the workspace immediately after each AI file edit.
+
+- **Pass** → exit 0, no output.
+- **Fail** → exit 2, compact findings written to **stderr** (visible in **Output → Hooks**).
+
+No stdout JSON per Cursor `afterFileEdit` spec. No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
+
+### `clawtfup hook-cursor-stop`
+
+Reads a Cursor `stop` event from stdin. Only acts when `status == "completed"` — the final enforcement gate before the session closes.
+
+- **Pass** → exit 0.
+- **Fail** → exit 2, compact findings written to stderr.
+
+No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
+
+### `clawtfup hook-vscode-stop`
+
+Reads a VS Code / Antigravity `Stop` event from stdin. On policy failure returns `{"hookSpecificOutput": {"decision": "block", "reason": "..."}}`, blocking the session from ending. Guards against retry loops: when the event contains `stop_hook_active: true` (or `stopHookActive: true`) the hook no-ops to avoid infinite re-trigger.
 
 No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
 
 ### `clawtfup cli --provider NAME`
 
 ```text
-clawtfup cli --provider claude [--workspace DIR] [-- agent-args…]
+clawtfup cli --provider claude|codex|gemini [--workspace DIR] [-- agent-args…]
 ```
 
 | Flag | Default | Effect |
 |:-----|:--------|:-------|
-| `--provider NAME` | required | Agent name. Currently `claude` (maps to the `claude` binary). |
+| `--provider NAME` | required | `claude` → `claude`; `codex` → `codex`; `gemini` → `gemini`. |
 | `--workspace DIR` | cwd | Workspace root; validated against `.clawtfup/policies/`. |
+| `--claude-bin`, `--codex-bin`, `--gemini-bin` | — | Override executable path for that provider. |
 | `--` | — | Separator; everything after is forwarded verbatim to the agent binary. |
 
-**Binary resolution order:** `--` argument → `$CLAWTFUP_CLAUDE_BIN` env var → `claude` on `PATH`.
+**Binary resolution order:** per-provider `--*-bin` flag → `$CLAWTFUP_CLAUDE_BIN` / `$CLAWTFUP_CODEX_BIN` / `$CLAWTFUP_GEMINI_BIN` → default name on `PATH`.
 
 **I/O mode selection:**
 - Stdin is a real TTY (interactive terminal) → PTY mode: opens a pseudo-terminal, syncs window size, forwards `SIGWINCH`, relays raw bytes. Full TUI support.
@@ -1058,9 +1196,10 @@ Add a **`.cfupignore`** at the repo root to exclude paths from indexing (vendor 
 Full spec: **[AGENTS.md](AGENTS.md)**
 
 1. Run `clawtfup evaluate --pretty` before treating any coding task as done.
-2. Treat stdout JSON as source of truth; never use `--no-strict` to avoid fixing violations.
-3. Fix **application code** to satisfy policy—do not weaken `.clawtfup/` unless the user explicitly asked.
-4. If the binary is missing, fix the environment (`pip install -e .`, OPA on `PATH`), then re-run.
+2. Default scan indexes the **working tree on disk** (no `git diff HEAD`). A `.cfupignore` at the repo root (gitignore syntax) controls what is excluded.
+3. Treat stdout JSON as source of truth; never use `--no-strict` to avoid fixing violations.
+4. Fix **application code** to satisfy policy—do not weaken `.clawtfup/` unless the user explicitly asked.
+5. If the binary is missing, fix the environment (`pip install -e .`, OPA on `PATH`), then re-run.
 
 ---
 

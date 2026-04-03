@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "AfterTool": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "clawtfup-policy-after-tool",
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.gemini/hooks/clawtfup-gemini-after-tool.sh\"",
+            "description": "clawtfup: policy after tool use"
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "clawtfup-eval-context",
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.gemini/hooks/clawtfup-gemini-before-agent.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

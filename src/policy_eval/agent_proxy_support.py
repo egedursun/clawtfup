@@ -20,6 +20,15 @@ def truncate_hook_context(text: str, *, max_len: int = _HOOK_CONTEXT_MAX) -> str
     return text[: max_len - len(tail)] + tail
 
 
+def stdin_hook_event_name(event: dict, default: str) -> str:
+    """Normalize Claude/Codex (``hook_event_name``) vs VS Code / Antigravity (``hookEventName``)."""
+    for key in ("hook_event_name", "hookEventName"):
+        v = event.get(key)
+        if isinstance(v, str) and v.strip():
+            return v
+    return default
+
+
 def format_findings_human(report: dict) -> str:
     lines: list[str] = []
     findings = report.get("findings") or []

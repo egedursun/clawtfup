@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "bash \"$(git rev-parse --show-toplevel)/.github/hooks/clawtfup-vscode-post-tool-use.sh\""
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "bash \"$(git rev-parse --show-toplevel)/.github/hooks/clawtfup-vscode-user-prompt-submit.sh\""
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "bash \"$(git rev-parse --show-toplevel)/.github/hooks/clawtfup-vscode-stop.sh\""
+      }
+    ]
+  }
+}

@@ -10,6 +10,7 @@ from .agent_proxy_support import (
     evaluation_passed,
     format_findings_human,
     run_evaluate_subprocess,
+    stdin_hook_event_name,
     truncate_hook_context,
 )
 from .defaults import default_policies_dir
@@ -40,7 +41,7 @@ def hook_post_tool_use_cmd() -> int:
         "clawtfup: policy failed after this edit. Revert or fix every finding before continuing.\n\n"
         + human
     )
-    hook_name = event.get("hook_event_name") or "PostToolUse"
+    hook_name = stdin_hook_event_name(event, "PostToolUse")
     out = {
         "decision": "block",
         "reason": "Workspace policy failed after this tool run (see hook context for findings).",
@@ -72,7 +73,7 @@ def hook_user_prompt_submit_cmd() -> int:
 
     code, report = run_evaluate_subprocess(ws)
     ok = evaluation_passed(report, code)
-    hook_name = event.get("hook_event_name") or "UserPromptSubmit"
+    hook_name = stdin_hook_event_name(event, "UserPromptSubmit")
 
     if ok:
         msg = (

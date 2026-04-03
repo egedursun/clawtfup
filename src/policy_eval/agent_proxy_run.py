@@ -154,3 +154,24 @@ def run_codex_proxy(
         env_bin_var="CLAWTFUP_CODEX_BIN",
         default_bin="codex",
     )
+
+
+def run_gemini_proxy(
+    child_argv: list[str],
+    workspace: Path,
+    *,
+    gemini_executable: str | None = None,
+) -> int:
+    """
+    Spawn the Gemini CLI (``gemini`` or *gemini_executable*) with *child_argv* and relay stdio.
+
+    Policy enforcement uses project ``.gemini/settings.json`` hooks (see this repo's
+    ``.gemini/settings.json``) wired to ``hook-gemini-*`` commands.
+    """
+    return _run_agent_cli_proxy(
+        child_argv,
+        workspace,
+        executable=gemini_executable,
+        env_bin_var="CLAWTFUP_GEMINI_BIN",
+        default_bin="gemini",
+    )

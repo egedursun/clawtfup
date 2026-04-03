@@ -6,4 +6,3 @@ venv/
 *.pyc
 *.egg-info/
 .env
-tests/fixtures/patches/

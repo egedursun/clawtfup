@@ -1,4 +1,9 @@
-"""OpenAI Codex CLI hook entrypoints (stdin JSON → stdout hook JSON)."""
+"""Google Gemini CLI hook entrypoints (stdin JSON → stdout hook JSON).
+
+Gemini uses ``AfterTool`` (post-tool) and ``BeforeAgent`` (prompt-time context), not
+Codex/Claude event names. Output shape matches Gemini's hook reference:
+https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/reference.md
+"""
 
 from __future__ import annotations
 
@@ -16,15 +21,10 @@ from .agent_proxy_support import (
 from .defaults import default_policies_dir
 
 
-def hook_codex_post_tool_use_cmd() -> int:
+def hook_gemini_after_tool_cmd() -> int:
     """
-    Codex PostToolUse: run evaluate. On failure block the turn with findings.
-
-    The same stdout JSON shape is used for VS Code and Google Antigravity agent hooks
-    (``PostToolUse`` in ``.github/hooks/``). Stdin may use ``hookEventName`` (camelCase).
-
-    See https://developers.openai.com/codex/hooks/ — ``suppressOutput`` is not
-    applied here (Codex does not implement it for this event).
+    Gemini ``AfterTool``: run evaluate; on failure deny/block so the agent sees policy
+    feedback instead of a clean tool result.
     """
     raw = sys.stdin.read()
     if not raw.strip():
@@ -49,9 +49,9 @@ def hook_codex_post_tool_use_cmd() -> int:
         "clawtfup: policy failed after this tool run. Revert or fix every finding before continuing.\n\n"
         + human
     )
-    hook_name = stdin_hook_event_name(event, "PostToolUse")
+    hook_name = stdin_hook_event_name(event, "AfterTool")
     out = {
-        "decision": "block",
+        "decision": "deny",
         "reason": "Workspace policy failed after this tool run (see hook context for findings).",
         "hookSpecificOutput": {
             "hookEventName": hook_name,
@@ -62,8 +62,8 @@ def hook_codex_post_tool_use_cmd() -> int:
     return 0
 
 
-def hook_codex_user_prompt_submit_cmd() -> int:
-    """Codex UserPromptSubmit: run evaluate and inject context. Never blocks the user's prompt."""
+def hook_gemini_before_agent_cmd() -> int:
+    """Gemini ``BeforeAgent``: run evaluate; inject context. Never denies the user's prompt."""
     raw = sys.stdin.read()
     if not raw.strip():
         return 0
@@ -80,7 +80,7 @@ def hook_codex_user_prompt_submit_cmd() -> int:
 
     code, report = run_evaluate_subprocess(ws)
     ok = evaluation_passed(report, code)
-    hook_name = stdin_hook_event_name(event, "UserPromptSubmit")
+    hook_name = stdin_hook_event_name(event, "BeforeAgent")
 
     if ok:
         msg = (
