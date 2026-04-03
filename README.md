@@ -273,6 +273,41 @@ CLAWTFUP_CLAUDE_BIN=/usr/local/bin/claude clawtfup cli --provider claude -- --he
 
 Or use the bundled slash command at `.claude/commands/noshit.md` which wraps any task description and enforces the gate before marking the task complete.
 
+#### OpenAI Codex [![Codex hooks](https://img.shields.io/badge/Codex-hooks.json-0f172a?style=flat-square)](https://developers.openai.com/codex/hooks/)
+
+Enable Codex hooks in `config.toml` (user or project layer):
+
+```toml
+[features]
+codex_hooks = true
+```
+
+Copy or merge the sample [`.codex/hooks.json`](.codex/hooks.json) into your Codex config search path (for example `~/.codex/hooks.json` or `<repo>/.codex/hooks.json`). It invokes the shell wrappers under [`.codex/hooks/`](.codex/hooks/), which mirror the Claude flow: **`.venv/bin/python`** first, then **`clawtfup`** on `PATH`.
+
+```bash
+chmod +x .codex/hooks/clawtfup-codex-post-tool-use.sh \
+         .codex/hooks/clawtfup-codex-user-prompt-submit.sh
+```
+
+| Subcommand | Role |
+|:-----------|:-----|
+| `clawtfup hook-codex-post-tool-use` | After a tool run: evaluate; on failure return `decision: block` plus `hookSpecificOutput.additionalContext` ([Codex PostToolUse](https://developers.openai.com/codex/hooks/)). |
+| `clawtfup hook-codex-user-prompt-submit` | On each user prompt: inject pass/fail summary via `additionalContext` only (no block). |
+
+**CLI proxy** (same PTY / pipe relay as Claude):
+
+```bash
+clawtfup cli --provider codex -- --help
+```
+
+Spawns the `codex` binary (or `$CLAWTFUP_CODEX_BIN`) with the given arguments (for example non-interactive `codex exec …` or the default TUI). Policy still comes from `hooks.json`, not from the proxy.
+
+```bash
+CLAWTFUP_CODEX_BIN=/opt/homebrew/bin/codex clawtfup cli --provider codex -- --help
+```
+
+Codex hooks are experimental and [disabled on Windows](https://developers.openai.com/codex/hooks/) as of current upstream docs.
+
 ### Cursor / Aider / custom runners [![shell integration](https://img.shields.io/badge/integration-shell_hook-0f172a?style=flat-square)]()
 
 Any runner that can shell out after a model turn can integrate clawtfup:
@@ -295,6 +330,7 @@ fi
 | **Saved diff file** | `clawtfup evaluate --diff-file /tmp/p.patch --pretty` | Diff written to temp file by orchestrator. |
 | **CI gate** | `clawtfup evaluate` (no `--pretty`) | GitHub Actions / pre-merge; exit code drives pass/fail. |
 | **Prefix scan** | `clawtfup evaluate --scan-prefix src/api --pretty` | Large monorepo; gate only the changed bounded context. |
+| **OpenAI Codex** | `clawtfup cli --provider codex -- …` + `.codex/hooks.json` | Transparent proxy plus `hook-codex-*` commands wired like Claude hooks. |
 
 ### Hook contract
 

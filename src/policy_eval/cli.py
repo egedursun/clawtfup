@@ -9,6 +9,9 @@ _PATCH_DEPRECATION = (
     "warning: --patch is deprecated; use --diff-file (same meaning).\n"
 )
 
+from .agent_proxy import run_claude_proxy, run_codex_proxy
+from .claude_hook_cmds import hook_post_tool_use_cmd, hook_user_prompt_submit_cmd
+from .codex_hook_cmds import hook_codex_post_tool_use_cmd, hook_codex_user_prompt_submit_cmd
 from .defaults import default_policies_dir
 from .evaluate import EvaluateOptions, evaluate
 from .exceptions import ManifestError, OpaEngineError, PatchApplyError, PolicyEvalError
@@ -116,11 +119,123 @@ def main(argv: list[str] | None = None) -> int:
         help="Pretty-print JSON output.",
     )
 
+    agent = sub.add_parser(
+        "cli",
+        help=(
+            "Proxy a provider CLI (Claude Code, OpenAI Codex): relay I/O only. Project hooks "
+            "run `evaluate` (see hook subcommands and `.claude/` or `.codex/` samples)."
+        ),
+    )
+    agent.add_argument(
+        "--provider",
+        choices=["claude", "codex"],
+        required=True,
+        help="Agent CLI to spawn (forwards remaining args to that executable).",
+    )
+    agent.add_argument(
+        "--workspace",
+        type=Path,
+        default=None,
+        help="Project root (default: current directory). Passed as cwd for the child process.",
+    )
+    agent.add_argument(
+        "--claude-bin",
+        type=str,
+        default=None,
+        help="Path to the claude executable (default: $CLAWTFUP_CLAUDE_BIN or 'claude' on PATH).",
+    )
+    agent.add_argument(
+        "--codex-bin",
+        type=str,
+        default=None,
+        help="Path to the codex executable (default: $CLAWTFUP_CODEX_BIN or 'codex' on PATH).",
+    )
+    agent.add_argument(
+        "provider_args",
+        nargs=argparse.REMAINDER,
+        help="Arguments for the provider; use '--' before flags meant for the provider.",
+    )
+
+    sub.add_parser(
+        "hook-post-tool-use",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help=(
+            "Claude Code PostToolUse hook: run evaluate on cwd; on failure emit JSON with "
+            "decision block + findings (tool already ran; block stops the turn until fixed)."
+        ),
+        description=(
+            "This repo ships `.claude/settings.json` + shell wrappers under `.claude/hooks/` "
+            "so Claude Code runs this command with hook JSON on stdin.\n\n"
+            "Behavior: runs `clawtfup evaluate` (via the same Python as the hook process). "
+            "Exit 0 always. On policy pass: empty stdout. On failure: stdout JSON with top-level "
+            "`decision: \"block\"`, `reason`, and `hookSpecificOutput.additionalContext` "
+            "(human findings, truncated near 10k chars). See Claude Code hooks docs for "
+            "PostToolUse + decision control."
+        ),
+    )
+
+    sub.add_parser(
+        "hook-user-prompt-submit",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help=(
+            "Claude Code UserPromptSubmit hook: run evaluate; inject pass/fail context "
+            "(does not block or erase the user's prompt)."
+        ),
+        description=(
+            "Runs evaluate on each user message when `.clawtfup/policies/` exists. "
+            "Always exit 0 with JSON: `hookSpecificOutput.additionalContext` summarizes "
+            "pass/fail and findings on failure. Never uses `decision: block` here so the "
+            "submitted prompt is not rejected."
+        ),
+    )
+
+    sub.add_parser(
+        "hook-codex-post-tool-use",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help=(
+            "OpenAI Codex PostToolUse hook: run evaluate; on failure emit JSON with "
+            "decision block + findings (tool already ran)."
+        ),
+        description=(
+            "Wire this command from `.codex/hooks.json` (enable `codex_hooks` in config.toml). "
+            "Codex sends hook JSON on stdin with `cwd`. On policy pass: empty stdout. "
+            "On failure: JSON with `decision: \"block\"`, `reason`, and "
+            "`hookSpecificOutput.additionalContext`. See OpenAI Codex hooks documentation."
+        ),
+    )
+
+    sub.add_parser(
+        "hook-codex-user-prompt-submit",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help=(
+            "OpenAI Codex UserPromptSubmit hook: run evaluate; inject pass/fail context "
+            "(does not block the user's prompt)."
+        ),
+        description=(
+            "Same behavior as `hook-user-prompt-submit` but emits Codex-oriented JSON "
+            "(no `suppressOutput`; Codex UserPromptSubmit schema)."
+        ),
+    )
+
     args = parser.parse_args(argv)
 
+    if args.cmd == "cli":
+        return _cli_cmd(args)
+    if args.cmd == "hook-post-tool-use":
+        return hook_post_tool_use_cmd()
+    if args.cmd == "hook-user-prompt-submit":
+        return hook_user_prompt_submit_cmd()
+    if args.cmd == "hook-codex-post-tool-use":
+        return hook_codex_post_tool_use_cmd()
+    if args.cmd == "hook-codex-user-prompt-submit":
+        return hook_codex_user_prompt_submit_cmd()
     if args.cmd != "evaluate":
         return 2
 
+    return _evaluate_cmd(args)
+
+
+def _evaluate_cmd(args: argparse.Namespace) -> int:
     workspace = (args.workspace or Path.cwd()).resolve()
     policies = default_policies_dir(workspace).resolve()
 
@@ -202,6 +317,18 @@ def main(argv: list[str] | None = None) -> int:
             if f.get("severity") == "error":
                 return 2
     return 0
+
+
+def _cli_cmd(args: argparse.Namespace) -> int:
+    workspace = (args.workspace or Path.cwd()).resolve()
+    raw = list(args.provider_args or [])
+    if raw and raw[0] == "--":
+        raw = raw[1:]
+    if args.provider == "claude":
+        return run_claude_proxy(raw, workspace, claude_executable=args.claude_bin)
+    if args.provider == "codex":
+        return run_codex_proxy(raw, workspace, codex_executable=args.codex_bin)
+    return 2
 
 
 if __name__ == "__main__":

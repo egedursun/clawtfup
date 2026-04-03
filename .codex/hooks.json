@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/clawtfup-codex-post-tool-use.sh\"",
+            "statusMessage": "clawtfup: policy after tool use"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/clawtfup-codex-user-prompt-submit.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

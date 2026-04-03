@@ -1,0 +1,120 @@
+{
+  "proxy_schema": 1,
+  "clawtfup_evaluate_exit_code": 2,
+  "report": {
+    "schema_version": 1,
+    "evaluation_id": "bec4ecb7-8614-49b6-b819-67f5f9c41411",
+    "timestamp": "2026-04-02T22:33:17.982463+00:00",
+    "duration_ms": 825,
+    "inputs": {
+      "workspace": "/Users/vincente.dogandursun/Repositories/clawtfup",
+      "policy_bundle": "/Users/vincente.dogandursun/Repositories/clawtfup/.clawtfup/policies",
+      "opa_data_dir": "/Users/vincente.dogandursun/Repositories/clawtfup/.clawtfup/policies/rego",
+      "changed_paths": [
+        ".claude/commands/noshit.md",
+        ".gitignore",
+        "AGENTS.md",
+        "LICENSE",
+        "README.md",
+        "calculator.py",
+        "examples/blog/app.py",
+        "examples/blog/auth.py",
+        "examples/blog/models.py",
+        "examples/blog/requirements.txt",
+        "examples/blog/routes.py",
+        "examples/blog/services.py",
+        "examples/blog/templates/base.html",
+        "examples/blog/templates/edit_post.html",
+        "examples/blog/templates/index.html",
+        "examples/blog/templates/login.html",
+        "examples/blog/templates/new_post.html",
+        "examples/blog/templates/post.html",
+        "examples/blog/templates/register.html",
+        "examples/blog/views.py",
+        "pyproject.toml",
+        "pytest.ini",
+        "requirements.txt",
+        "schemas/evaluation_report.json",
+        "src/policy_eval/__init__.py",
+        "src/policy_eval/__main__.py",
+        "src/policy_eval/agent_proxy.py",
+        "src/policy_eval/agent_proxy_pty.py",
+        "src/policy_eval/agent_proxy_run.py",
+        "src/policy_eval/agent_proxy_stream_triggers.py",
+        "src/policy_eval/agent_proxy_support.py",
+        "src/policy_eval/cli.py",
+        "src/policy_eval/defaults.py",
+        "src/policy_eval/evaluate.py",
+        "src/policy_eval/exceptions.py",
+        "src/policy_eval/feedback.py",
+        "src/policy_eval/findings_normalize.py",
+        "src/policy_eval/git_changes.py",
+        "src/policy_eval/git_workspace.py",
+        "src/policy_eval/input_merge.py",
+        "src/policy_eval/manifest.py",
+        "src/policy_eval/opa_runner.py",
+        "src/policy_eval/patch_apply.py",
+        "src/policy_eval/workspace.py",
+        "tests/fixtures/sample_project/app.py",
+        "tests/fixtures/ws/app.py",
+        "tests/test_agent_proxy.py",
+        "tests/test_defaults_git.py",
+        "tests/test_evaluate_e2e.py",
+        "tests/test_feedback_merge.py",
+        "tests/test_findings_normalize.py",
+        "tests/test_patch_apply.py",
+        "tests/test_workspace.py"
+      ],
+      "change_source": "git_head",
+      "scan_mode": "full_tree",
+      "scan_prefix": null,
+      "index_baseline": "git_head",
+      "patch_stats": {
+        "bytes": 10576,
+        "lines": 266
+      },
+      "merged_input_sources": [],
+      "index_warnings": [],
+      "skipped_binary_count": 0,
+      "skipped_large_count": 1
+    },
+    "results": {
+      "data.code_edits.report": {
+        "allow": false,
+        "violations": [
+          {
+            "code": "TECH_DEBT_TODO",
+            "message": "TODO/FIXME/HACK/XXX in changed code must be tracked or removed before merge.",
+            "path": "",
+            "severity": "error"
+          }
+        ]
+      }
+    },
+    "engine": {
+      "opa_version": "1.15.1",
+      "queries": [
+        "data.code_edits.report"
+      ]
+    },
+    "findings": [
+      {
+        "code": "TECH_DEBT_TODO",
+        "message": "TODO/FIXME/HACK/XXX in changed code must be tracked or removed before merge.",
+        "severity": "error",
+        "path": "",
+        "feedback": {
+          "title": "TODO/FIXME/HACK/XXX in diff",
+          "remediation": "File a ticket or resolve before merge when policy requires clean diffs.",
+          "references": []
+        }
+      }
+    ],
+    "summary": {
+      "by_severity": {
+        "error": 1
+      }
+    },
+    "allow": false
+  }
+}
