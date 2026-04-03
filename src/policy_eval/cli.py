@@ -12,6 +12,11 @@ _PATCH_DEPRECATION = (
 from .agent_proxy import run_claude_proxy, run_codex_proxy
 from .claude_hook_cmds import hook_post_tool_use_cmd, hook_user_prompt_submit_cmd
 from .codex_hook_cmds import hook_codex_post_tool_use_cmd, hook_codex_user_prompt_submit_cmd
+from .cursor_hook_cmds import (
+    hook_cursor_after_file_edit_cmd,
+    hook_cursor_before_submit_prompt_cmd,
+    hook_cursor_stop_cmd,
+)
 from .defaults import default_policies_dir
 from .evaluate import EvaluateOptions, evaluate
 from .exceptions import ManifestError, OpaEngineError, PatchApplyError, PolicyEvalError
@@ -123,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         "cli",
         help=(
             "Proxy a provider CLI (Claude Code, OpenAI Codex): relay I/O only. Project hooks "
-            "run `evaluate` (see hook subcommands and `.claude/` or `.codex/` samples)."
+            "run `evaluate` (see hook subcommands and `.claude/`, `.codex/`, `.cursor/` samples)."
         ),
     )
     agent.add_argument(
@@ -217,6 +222,42 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
 
+    sub.add_parser(
+        "hook-cursor-before-submit-prompt",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help=(
+            "Cursor beforeSubmitPrompt hook: block new prompts when evaluate fails "
+            "(stdout JSON `continue: false`)."
+        ),
+        description=(
+            "Wire from `.cursor/hooks.json`. See https://cursor.com/docs/agent/hooks "
+            "(e.g. https://cursor.com/tr/docs/hooks). "
+            "When `.clawtfup/policies/` exists, runs evaluate; on failure prints "
+            "`{\"continue\": false, \"userMessage\": \"...\"}`."
+        ),
+    )
+
+    sub.add_parser(
+        "hook-cursor-after-file-edit",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help=(
+            "Cursor afterFileEdit hook: run evaluate; exit 2 + stderr on failure "
+            "(no blocking JSON on this event per Cursor docs)."
+        ),
+        description=(
+            "Can be noisy (full evaluate after every edit). Remove from hooks.json if too slow."
+        ),
+    )
+
+    sub.add_parser(
+        "hook-cursor-stop",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help=(
+            "Cursor stop hook: when status is completed, run evaluate; exit 2 on failure."
+        ),
+        description="Primary gate when the agent run finishes; stderr carries compact findings.",
+    )
+
     args = parser.parse_args(argv)
 
     if args.cmd == "cli":
@@ -229,6 +270,12 @@ def main(argv: list[str] | None = None) -> int:
         return hook_codex_post_tool_use_cmd()
     if args.cmd == "hook-codex-user-prompt-submit":
         return hook_codex_user_prompt_submit_cmd()
+    if args.cmd == "hook-cursor-before-submit-prompt":
+        return hook_cursor_before_submit_prompt_cmd()
+    if args.cmd == "hook-cursor-after-file-edit":
+        return hook_cursor_after_file_edit_cmd()
+    if args.cmd == "hook-cursor-stop":
+        return hook_cursor_stop_cmd()
     if args.cmd != "evaluate":
         return 2
 

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": "hooks/clawtfup-cursor-before-submit-prompt.sh"
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": "hooks/clawtfup-cursor-after-file-edit.sh"
+      }
+    ],
+    "stop": [
+      {
+        "command": "hooks/clawtfup-cursor-stop.sh"
+      }
+    ]
+  }
+}

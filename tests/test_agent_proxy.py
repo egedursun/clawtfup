@@ -253,3 +253,127 @@ def test_codex_hook_user_prompt_submit_skips_without_policies_dir(tmp_path) -> N
     assert out.getvalue() == ""
 
 
+def test_workspace_from_cursor_event(tmp_path) -> None:
+    from policy_eval.cursor_hook_cmds import workspace_from_cursor_event
+
+    p = str(tmp_path.resolve())
+    assert workspace_from_cursor_event({"workspace_roots": [p]}) == tmp_path.resolve()
+    assert workspace_from_cursor_event({"cwd": p}) == tmp_path.resolve()
+
+
+def test_hook_cursor_before_submit_prompt_continue_true_on_pass(tmp_path) -> None:
+    from policy_eval.cursor_hook_cmds import hook_cursor_before_submit_prompt_cmd
+
+    _mkdir_policies(tmp_path)
+    event = {
+        "workspace_roots": [str(tmp_path.resolve())],
+        "hook_event_name": "beforeSubmitPrompt",
+    }
+    out = io.StringIO()
+    with patch(
+        "policy_eval.cursor_hook_cmds.run_evaluate_subprocess",
+        return_value=(0, {"allow": True, "findings": []}),
+    ), patch.object(sys, "stdin", io.StringIO(json.dumps(event))), patch.object(
+        sys, "stdout", out
+    ):
+        assert hook_cursor_before_submit_prompt_cmd() == 0
+    assert json.loads(out.getvalue()) == {"continue": True}
+
+
+def test_hook_cursor_before_submit_prompt_continue_false_on_fail(tmp_path) -> None:
+    from policy_eval.cursor_hook_cmds import hook_cursor_before_submit_prompt_cmd
+
+    _mkdir_policies(tmp_path)
+    event = {
+        "workspace_roots": [str(tmp_path.resolve())],
+        "hook_event_name": "beforeSubmitPrompt",
+    }
+    out = io.StringIO()
+    fake_report = {
+        "allow": False,
+        "findings": [{"code": "E", "message": "nope", "severity": "error"}],
+    }
+    with patch(
+        "policy_eval.cursor_hook_cmds.run_evaluate_subprocess",
+        return_value=(2, fake_report),
+    ), patch.object(sys, "stdin", io.StringIO(json.dumps(event))), patch.object(
+        sys, "stdout", out
+    ):
+        assert hook_cursor_before_submit_prompt_cmd() == 0
+    parsed = json.loads(out.getvalue())
+    assert not parsed["continue"]
+    assert "userMessage" in parsed
+    assert "nope" in parsed["userMessage"]
+
+
+def test_hook_cursor_before_submit_prompt_skips_without_policies(tmp_path) -> None:
+    from policy_eval.cursor_hook_cmds import hook_cursor_before_submit_prompt_cmd
+
+    event = {"workspace_roots": [str(tmp_path.resolve())], "hook_event_name": "beforeSubmitPrompt"}
+    out = io.StringIO()
+    with patch.object(sys, "stdin", io.StringIO(json.dumps(event))), patch.object(
+        sys, "stdout", out
+    ):
+        assert hook_cursor_before_submit_prompt_cmd() == 0
+    assert json.loads(out.getvalue()) == {"continue": True}
+
+
+def test_hook_cursor_stop_skips_non_completed(tmp_path) -> None:
+    from policy_eval.cursor_hook_cmds import hook_cursor_stop_cmd
+
+    _mkdir_policies(tmp_path)
+    event = {
+        "workspace_roots": [str(tmp_path.resolve())],
+        "hook_event_name": "stop",
+        "status": "aborted",
+    }
+    with patch(
+        "policy_eval.cursor_hook_cmds.run_evaluate_subprocess",
+        return_value=(2, {"allow": False, "findings": []}),
+    ), patch.object(sys, "stdin", io.StringIO(json.dumps(event))):
+        assert hook_cursor_stop_cmd() == 0
+
+
+def test_hook_cursor_stop_exits_2_on_completed_fail(tmp_path) -> None:
+    from policy_eval.cursor_hook_cmds import hook_cursor_stop_cmd
+
+    _mkdir_policies(tmp_path)
+    event = {
+        "workspace_roots": [str(tmp_path.resolve())],
+        "hook_event_name": "stop",
+        "status": "completed",
+    }
+    err = io.StringIO()
+    fake_report = {"allow": False, "findings": [{"code": "Z", "severity": "error", "message": "bad"}]}
+    with patch(
+        "policy_eval.cursor_hook_cmds.run_evaluate_subprocess",
+        return_value=(2, fake_report),
+    ), patch.object(sys, "stdin", io.StringIO(json.dumps(event))), patch.object(
+        sys, "stderr", err
+    ):
+        assert hook_cursor_stop_cmd() == 2
+    assert "bad" in err.getvalue()
+
+
+def test_hook_cursor_after_file_edit_exits_2_on_fail(tmp_path) -> None:
+    from policy_eval.cursor_hook_cmds import hook_cursor_after_file_edit_cmd
+
+    _mkdir_policies(tmp_path)
+    event = {
+        "workspace_roots": [str(tmp_path.resolve())],
+        "hook_event_name": "afterFileEdit",
+        "file_path": "x.py",
+        "edits": [],
+    }
+    err = io.StringIO()
+    fake_report = {"allow": False, "findings": [{"code": "A", "severity": "error", "message": "x"}]}
+    with patch(
+        "policy_eval.cursor_hook_cmds.run_evaluate_subprocess",
+        return_value=(2, fake_report),
+    ), patch.object(sys, "stdin", io.StringIO(json.dumps(event))), patch.object(
+        sys, "stderr", err
+    ):
+        assert hook_cursor_after_file_edit_cmd() == 2
+    assert "x" in err.getvalue() or "policy failed" in err.getvalue()
+
+
