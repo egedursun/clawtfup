@@ -445,10 +445,90 @@ CLAWTFUP_CODEX_BIN=/opt/homebrew/bin/codex clawtfup cli --provider codex -- --he
 
 ### ![Cursor](https://img.shields.io/badge/Cursor-0f172a?style=flat-square&logo=cursor&logoColor=white) Cursor
 
-[![hooks.json](https://img.shields.io/badge/hooks.json-lifecycle-16a34a?style=flat-square)](https://cursor.com/docs/agent/hooks)
-[![Agent Rules](https://img.shields.io/badge/Agent_Rules-context-2563eb?style=flat-square)]()
+[![beforeSubmitPrompt — enforcement](https://img.shields.io/badge/beforeSubmitPrompt-enforcement-16a34a?style=flat-square)](https://cursor.com/docs/agent/hooks)
+[![afterFileEdit — enforcement](https://img.shields.io/badge/afterFileEdit-enforcement-16a34a?style=flat-square)](https://cursor.com/docs/agent/hooks)
+[![stop — final gate](https://img.shields.io/badge/stop-final_gate-dc2626?style=flat-square)](https://cursor.com/docs/agent/hooks)
+[![Agent Rules — context](https://img.shields.io/badge/Agent_Rules-context-2563eb?style=flat-square)]()
 
-Cursor supports **lifecycle hooks** via [`.cursor/hooks.json`](https://cursor.com/docs/agent/hooks) (same content is available in other locales, e.g. [cursor.com/tr/docs/hooks](https://cursor.com/tr/docs/hooks)). This repo ships a sample [`.cursor/hooks.json`](.cursor/hooks.json) plus shell entrypoints under [`.cursor/hooks/`](.cursor/hooks/) (resolve `.venv/bin/python` or `clawtfup` on `PATH`, same pattern as Claude/Codex).
+clawtfup ships **protocol-aware hook commands** for Cursor's native [lifecycle hook system](https://cursor.com/docs/agent/hooks). Three events are covered: prompt submission is gated before the model responds, every file edit is evaluated immediately after it lands, and the completed agent run is blocked on failure. The agent cannot finish a session with a policy violation.
+
+#### Setup
+
+**Step 1 — Wire the hook commands**
+
+Copy or merge [`.cursor/hooks.json`](.cursor/hooks.json) into your project root (or `~/.cursor/hooks.json` for a global gate):
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      { "command": "hooks/clawtfup-cursor-before-submit-prompt.sh" }
+    ],
+    "afterFileEdit": [
+      { "command": "hooks/clawtfup-cursor-after-file-edit.sh" }
+    ],
+    "stop": [
+      { "command": "hooks/clawtfup-cursor-stop.sh" }
+    ]
+  }
+}
+```
+
+> Hook paths are resolved relative to the `.cursor/` directory. The shell scripts must live at `.cursor/hooks/`.
+
+**Step 2 — Copy the shell wrappers**
+
+**`.cursor/hooks/clawtfup-cursor-before-submit-prompt.sh`** (chmod +x)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -n "$ROOT" ]]; then cd "$ROOT" || true; fi
+if [[ -x .venv/bin/python ]]; then
+  exec .venv/bin/python -m policy_eval hook-cursor-before-submit-prompt
+fi
+if command -v clawtfup >/dev/null 2>&1; then
+  exec clawtfup hook-cursor-before-submit-prompt
+fi
+printf '%s' '{"continue":true}'
+exit 0
+```
+
+**`.cursor/hooks/clawtfup-cursor-after-file-edit.sh`** (chmod +x)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -n "$ROOT" ]]; then cd "$ROOT" || true; fi
+if [[ -x .venv/bin/python ]]; then
+  exec .venv/bin/python -m policy_eval hook-cursor-after-file-edit
+fi
+if command -v clawtfup >/dev/null 2>&1; then
+  exec clawtfup hook-cursor-after-file-edit
+fi
+exit 0
+```
+
+**`.cursor/hooks/clawtfup-cursor-stop.sh`** (chmod +x)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -n "$ROOT" ]]; then cd "$ROOT" || true; fi
+if [[ -x .venv/bin/python ]]; then
+  exec .venv/bin/python -m policy_eval hook-cursor-stop
+fi
+if command -v clawtfup >/dev/null 2>&1; then
+  exec clawtfup hook-cursor-stop
+fi
+exit 0
+```
+
+The scripts resolve the runtime in order: **project venv** (`.venv/bin/python`) → **global `clawtfup`** on `PATH`. If neither is found they exit 0 silently — safe to commit to repos where clawtfup isn't yet installed.
 
 ```bash
 chmod +x .cursor/hooks/clawtfup-cursor-before-submit-prompt.sh \
@@ -456,19 +536,69 @@ chmod +x .cursor/hooks/clawtfup-cursor-before-submit-prompt.sh \
          .cursor/hooks/clawtfup-cursor-stop.sh
 ```
 
-| Subcommand | Cursor event | Behavior |
-|:-----------|:-------------|:---------|
-| `clawtfup hook-cursor-before-submit-prompt` | `beforeSubmitPrompt` | Runs evaluate; if policy fails, stdout is `{"continue": false, "userMessage": "…"}`, which stops the prompt from being sent until the workspace is clean. |
-| `clawtfup hook-cursor-after-file-edit` | `afterFileEdit` | Runs evaluate after each AI edit; on failure exits **2** and writes compact findings to **stderr** (Hooks output channel). Cursor does not document a blocking JSON response for this event—the agent may still continue. |
-| `clawtfup hook-cursor-stop` | `stop` | When `status` is `completed`, runs evaluate; exits **2** on failure so the hook run is visibly failed. |
+#### How the hooks work
 
-Copy or merge `.cursor/hooks.json` into your project or into `~/.cursor/hooks.json` if you want the gate globally. Remove the `afterFileEdit` entry if full-tree evaluate after every edit is too slow.
+**`clawtfup hook-cursor-before-submit-prompt`** ![beforeSubmitPrompt](https://img.shields.io/badge/beforeSubmitPrompt-enforcement-16a34a?style=flat-square)
 
-Use **Output → Hooks** in Cursor to debug hook JSON and exit codes.
+Fires before the user's prompt is sent to the model. Evaluates the workspace and returns a Cursor hook response:
 
-#### Layer 1 — Agent Rules (`.cursor/rules`)
+- **Policy pass** → `{"continue": true}`. The prompt is sent normally.
+- **Policy fail** → `{"continue": false, "userMessage": "<findings + remediation>"}`. Cursor surfaces the violations to the user and blocks the prompt from being submitted until the workspace is clean.
 
-Cursor injects `.cursor/rules` MDC files into the model's context on every request. A rule that mandates clawtfup turns enforcement into a standing instruction the agent carries into every session — no user reminder needed.
+```
+USER SUBMITS PROMPT
+        │
+        ▼
+clawtfup hook-cursor-before-submit-prompt ──▶ runs evaluate
+        │
+        ├── pass  ──▶ {"continue": true}   ──▶ prompt sent to model
+        │
+        └── fail  ──▶ {"continue": false, "userMessage": "<findings>"}
+                       Cursor blocks prompt; user sees violations, fixes code
+```
+
+**`clawtfup hook-cursor-after-file-edit`** ![afterFileEdit](https://img.shields.io/badge/afterFileEdit-enforcement-16a34a?style=flat-square)
+
+Fires after each AI file edit. Evaluates the workspace immediately and writes compact findings to **stderr** (visible in **Output → Hooks**) on failure:
+
+- **Policy pass** → exit 0, no output.
+- **Policy fail** → exits **2**, findings written to stderr. The agent session may continue, but violations are surfaced in the Hooks output channel in real time.
+
+**`clawtfup hook-cursor-stop`** ![stop](https://img.shields.io/badge/stop-final_gate-dc2626?style=flat-square)
+
+Fires when the agent run finishes. Only acts when `status == "completed"` — the final enforcement gate before the session closes:
+
+- **Policy pass** → exit 0.
+- **Policy fail** → exits **2**, compact findings to stderr. The hook run is marked failed, making the policy violation visible in the session summary.
+
+#### Hook coverage across the agent lifecycle
+
+```
+Cursor agent session
+        │
+        ├─ [user types prompt]
+        │        │
+        │        ▼
+        │  beforeSubmitPrompt ──▶ evaluate; block prompt on fail (continue: false)
+        │
+        ├─ [model edits a file]
+        │        │
+        │        ▼
+        │  afterFileEdit ──────▶ evaluate; exit 2 + stderr findings on fail
+        │
+        ├─ [model edits another file] ──▶ afterFileEdit fires again
+        │
+        └─ [agent run completes]
+                 │
+                 ▼
+           stop (completed) ──▶ evaluate; exit 2 on fail — final hard gate
+```
+
+Every stage of the session is covered: prompts are gated at submission, edits are checked as they land, and the completed run is blocked if anything slipped through.
+
+#### Agent Rules (`.cursor/rules`) — ambient context
+
+Pair the hooks with a `.cursor/rules` MDC file to keep the model continuously aware of the policy contract. Rules inject context into every chat and Composer session automatically.
 
 Create **`.cursor/rules/clawtfup.mdc`**:
 
@@ -484,49 +614,15 @@ Before marking **any** coding task as complete you must run:
 
     clawtfup evaluate --pretty
 
-Rules:
-- If the command is not found, stop and tell the user to run `pip install -e .` and ensure OPA is on PATH.
-- If exit code is **0** (`"allow": true`, no error findings) → the task is done.
-- If exit code is **2** → read `findings[]`. Fix **application code** to satisfy each violation. Do **not** weaken or bypass `.clawtfup/` policies. Re-run until the workspace is clean.
-- Never pass `--no-strict` to avoid fixing a violation.
-- Treat `clawtfup evaluate` stdout JSON as the source of truth. Ignore stderr except for fatal errors.
+- Exit **0** → workspace is clean, task is done.
+- Exit **2** → read `findings[]`, fix **application code** to satisfy each violation, re-run until clean.
+- Never pass `--no-strict` to skip a violation.
+- Do not weaken or modify `.clawtfup/` policies unless the user explicitly asks.
 ```
 
-> **`alwaysApply: true`** ensures the rule is active for every chat and Composer session, not just when Cursor infers it is relevant. Omitting this creates blind spots.
+> **`alwaysApply: true`** ensures the rule is active for every session. Omitting it creates blind spots between hook boundaries.
 
-#### Layer 2 — Optional manual / CI script
-
-For workflows that are not going through Cursor hooks, you can still run `clawtfup evaluate` from a shell after edits (same exit-code contract as everywhere else in this README).
-
-#### How the layers interact
-
-```
-Cursor agent turn (Composer / Chat)
-        │
-        ├── hooks.json: beforeSubmitPrompt ──▶ evaluate; may block prompt (continue: false)
-        │
-        ├── hooks.json: afterFileEdit ──────▶ evaluate; stderr / exit 2 on failure
-        │
-        ├── hooks.json: stop (completed) ──▶ evaluate; exit 2 on failure
-        │
-        ▼
-Agent Rule: "run clawtfup evaluate --pretty before finishing"
-        │
-        ├── pass (exit 0)  ──▶ agent marks task complete
-        │
-        └── fail (exit 2)  ──▶ agent reads findings[], fixes code, re-runs
-```
-
-Native hooks give deterministic enforcement; rules keep the model reminded between hook boundaries.
-
-#### CI gate
-
-In GitHub Actions or any CI pipeline, the shell script doubles as your pre-merge gate:
-
-```yaml
-- name: Policy gate
-  run: clawtfup evaluate   # no --pretty; exit 2 fails the job
-```
+Use **Output → Hooks** in Cursor to inspect hook JSON, exit codes, and stderr output.
 
 ### Aider / custom runners [![shell integration](https://img.shields.io/badge/integration-shell_hook-0f172a?style=flat-square)]()
 
@@ -549,7 +645,7 @@ fi
 | **Saved diff file** | `clawtfup evaluate --diff-file /tmp/p.patch --pretty` | Diff written to temp file by orchestrator. |
 | **CI gate** | `clawtfup evaluate` (no `--pretty`) | GitHub Actions / pre-merge; exit code drives pass/fail. |
 | **Prefix scan** | `clawtfup evaluate --scan-prefix src/api --pretty` | Large monorepo; gate only the changed bounded context. |
-| **Cursor** | `.cursor/hooks.json` + `hook-cursor-*` + `.cursor/rules/clawtfup.mdc` | Lifecycle hooks + optional agent rule. |
+| **Cursor** | `.cursor/hooks.json` + `hook-cursor-*` commands | Native lifecycle hooks: gate prompts, check every edit, enforce on completion. |
 | **OpenAI Codex** | `clawtfup cli --provider codex -- …` + `.codex/hooks.json` | Transparent proxy plus `hook-codex-*` commands wired like Claude hooks. |
 
 ### Hook contract
