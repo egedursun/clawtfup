@@ -9,7 +9,13 @@ _PATCH_DEPRECATION = (
     "warning: --patch is deprecated; use --diff-file (same meaning).\n"
 )
 
-from .agent_proxy import run_claude_proxy, run_codex_proxy, run_gemini_proxy, run_qwen_proxy
+from .agent_proxy import (
+    run_claude_proxy,
+    run_codex_proxy,
+    run_gemini_proxy,
+    run_kilo_proxy,
+    run_qwen_proxy,
+)
 from .claude_hook_cmds import hook_post_tool_use_cmd, hook_user_prompt_submit_cmd
 from .codex_hook_cmds import hook_codex_post_tool_use_cmd, hook_codex_user_prompt_submit_cmd
 from .gemini_hook_cmds import hook_gemini_after_tool_cmd, hook_gemini_before_agent_cmd
@@ -142,14 +148,15 @@ def main(argv: list[str] | None = None) -> int:
     agent = sub.add_parser(
         "cli",
         help=(
-            "Proxy a provider CLI (Claude Code, OpenAI Codex, Gemini CLI, Qwen Code): relay I/O only. "
-            "Project hooks run `evaluate` (see hook subcommands and `.claude/`, `.codex/`, "
-            "`.gemini/`, `.qwen/`, `.github/hooks/`, `.cursor/` samples)."
+            "Proxy a provider CLI (Claude Code, OpenAI Codex, Gemini CLI, Qwen Code, Kilocode Kilo): "
+            "relay I/O only. Project hooks/plugins run `evaluate` (see hook subcommands and "
+            "`.claude/`, `.codex/`, `.gemini/`, `.qwen/`, `.opencode/plugins/`, `.github/hooks/`, "
+            "`.cursor/` samples)."
         ),
     )
     agent.add_argument(
         "--provider",
-        choices=["claude", "codex", "gemini", "qwen"],
+        choices=["claude", "codex", "gemini", "qwen", "kilo"],
         required=True,
         help="Agent CLI to spawn (forwards remaining args to that executable).",
     )
@@ -182,6 +189,12 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         help="Path to the qwen executable (default: $CLAWTFUP_QWEN_BIN or 'qwen' on PATH).",
+    )
+    agent.add_argument(
+        "--kilo-bin",
+        type=str,
+        default=None,
+        help="Path to the kilo executable (default: $CLAWTFUP_KILO_BIN or 'kilo' on PATH).",
     )
     agent.add_argument(
         "provider_args",
@@ -330,6 +343,8 @@ def _cli_cmd(args: argparse.Namespace) -> int:
         return run_gemini_proxy(raw, workspace, gemini_executable=args.gemini_bin)
     if args.provider == "qwen":
         return run_qwen_proxy(raw, workspace, qwen_executable=args.qwen_bin)
+    if args.provider == "kilo":
+        return run_kilo_proxy(raw, workspace, kilo_executable=args.kilo_bin)
     return 2
 
 

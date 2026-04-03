@@ -14,6 +14,7 @@
 [![Codex](https://img.shields.io/badge/OpenAI_Codex-hook_ready-0f172a?style=flat-square&logo=openai&logoColor=white)](https://openai.com/codex)
 [![Gemini CLI](https://img.shields.io/badge/Gemini_CLI-hook_ready-0f172a?style=flat-square&logo=googlegemini&logoColor=white)](https://github.com/google-gemini/gemini-cli)
 [![Qwen Code](https://img.shields.io/badge/Qwen_Code-hook_ready-0f172a?style=flat-square)](https://github.com/QwenLM/qwen-code)
+[![Kilocode](https://img.shields.io/badge/Kilocode-plugin_ready-0f172a?style=flat-square)](https://kilocode.ai/docs/cli)
 [![Cursor](https://img.shields.io/badge/Cursor-hook_ready-0f172a?style=flat-square&logo=cursor&logoColor=white)](https://cursor.com)
 [![VS Code](https://img.shields.io/badge/VS_Code_%2F_Antigravity-hook_ready-0f172a?style=flat-square&logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com)
 
@@ -70,7 +71,7 @@ flowchart LR
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  Agent (Claude Code · Codex · Gemini · Qwen Code · Cursor · VS Code · Aider) │
+│  Agent (Claude Code · Codex · Gemini · Qwen Code · Kilo · Cursor · VS Code · Aider) │
 │                                                                  │
 │  pre-hook      → inject workspace status (UserPromptSubmit /     │
 │                  BeforeAgent / beforeSubmitPrompt)               │
@@ -652,6 +653,99 @@ CLAWTFUP_QWEN_BIN=/path/to/qwen clawtfup cli --provider qwen -- --help
 
 ---
 
+### ![Kilocode / Kilo CLI](https://img.shields.io/badge/Kilocode_%2F_Kilo_CLI-0f172a?style=flat-square) Kilocode & OpenCode (`kilo`)
+
+[![OpenCode plugins](https://img.shields.io/badge/OpenCode-plugin_model-2563eb?style=flat-square)](https://opencode.ai/docs/plugins)
+[![tool.execute.after](https://img.shields.io/badge/tool.execute.after-enforcement-16a34a?style=flat-square)](https://opencode.ai/docs/plugins)
+[![CLI proxy](https://img.shields.io/badge/CLI_proxy-PTY_aware-0f172a?style=flat-square)]()
+
+[Kilocode](https://kilocode.ai/docs/cli) ships the **`kilo`** CLI (`npm i -g @kilocode/cli`), a fork of [OpenCode](https://opencode.ai/) that shares the same **JavaScript plugin** model. Unlike the other providers there is no stdin/JSON shell-hook channel — policy is enforced via a project plugin file that subscribes to the **`tool.execute.after`** lifecycle event.
+
+```
+Kilo / OpenCode session
+        │
+        ├─ [model runs a tool]
+        │        │
+        │        ▼
+        │  tool.execute.after  ──▶  clawtfup evaluate (strict)
+        │        │
+        │        ├── exit 0  ──▶  tool result returned to model; session continues
+        │        │
+        │        └── exit ≠ 0  ──▶  plugin throws Error with findings + remediation
+        │                           agent sees violation text, must fix before continuing
+        │
+        └─ [repeat for every tool call in the session]
+```
+
+#### Setup
+
+Copy **`.opencode/plugins/`** into your project root. OpenCode and Kilo auto-load all `.mjs` files in that directory — no manifest entry required. Config precedence for Kilo follows `~/.config/kilo/opencode.json` → project `opencode.json` → `.opencode/`.
+
+**`.opencode/plugins/clawtfup-policy.mjs`**
+
+```js
+import { spawnSync } from "node:child_process"
+import { existsSync } from "node:fs"
+import { join } from "node:path"
+import { platform } from "node:os"
+
+function clawtfupExecutable(root) {
+  if (platform() === "win32") {
+    const p = join(root, ".venv", "Scripts", "clawtfup.exe")
+    if (existsSync(p)) return p
+  } else {
+    const p = join(root, ".venv", "bin", "clawtfup")
+    if (existsSync(p)) return p
+  }
+  return "clawtfup"
+}
+
+export const ClawtfupPolicy = async ({ directory }) => {
+  if (!existsSync(join(directory, ".clawtfup", "policies"))) return {}
+  const exe = clawtfupExecutable(directory)
+  return {
+    "tool.execute.after": async (input) => {
+      const tool = input?.tool ?? "tool"
+      const result = spawnSync(exe, ["evaluate"], {
+        cwd: directory, encoding: "utf-8", maxBuffer: 12 * 1024 * 1024,
+      })
+      if (result.error) throw new Error(
+        `clawtfup: could not run (${result.error.message}). Install clawtfup or fix PATH.`
+      )
+      if (result.status === 0) return
+      const out = [result.stdout, result.stderr].filter(Boolean).join("\n").trim()
+      const clip = out.length > 10000
+        ? `${out.slice(0, 10000)}\n...(truncated; run clawtfup evaluate --pretty locally.)`
+        : out
+      throw new Error(`clawtfup: policy failed after ${tool}. Fix findings then retry.\n\n${clip}`)
+    },
+  }
+}
+```
+
+**How it works:**
+
+- **`.clawtfup/policies/` absent** → plugin returns `{}` (no-op; safe to commit to repos not yet using clawtfup).
+- **`.clawtfup/policies/` present** → after every tool call the plugin runs `clawtfup evaluate` (strict) in the workspace root.
+- **Pass** (exit 0) → plugin returns normally; session continues.
+- **Fail** (exit ≠ 0) → plugin throws `Error` with up to 10 000 characters of findings + remediation. Kilo / OpenCode surfaces the error to the model, which must fix the violations before the session can advance.
+
+Runtime resolution: **`.venv/bin/clawtfup`** (or `.venv/Scripts/clawtfup.exe` on Windows) → **`clawtfup`** on `PATH`.
+
+#### CLI proxy (transparent agent wrapping) ![PTY](https://img.shields.io/badge/I%2FO-PTY_aware-0f172a?style=flat-square)
+
+```bash
+clawtfup cli --provider kilo -- --help
+```
+
+Spawns **`kilo`** (or **`$CLAWTFUP_KILO_BIN`**) with the same PTY/pipe relay as other providers. Policy enforcement comes from the plugin above — the proxy only wraps the binary.
+
+```bash
+CLAWTFUP_KILO_BIN=/path/to/kilo clawtfup cli --provider kilo -- run "Fix the auth layer"
+```
+
+---
+
 ### ![Antigravity / VS Code](https://img.shields.io/badge/Antigravity_%2F_VS_Code-0f172a?style=flat-square&logo=visualstudiocode&logoColor=white) Google Antigravity & VS Code agent hooks
 
 [![PostToolUse — enforcement](https://img.shields.io/badge/PostToolUse-enforcement-16a34a?style=flat-square)](https://code.visualstudio.com/docs/copilot/customization/hooks)
@@ -883,6 +977,7 @@ fi
 | **OpenAI Codex** | `clawtfup cli --provider codex -- …` + `.codex/hooks.json` | Transparent proxy plus `hook-codex-*` commands wired like Claude hooks. |
 | **Gemini CLI** | `clawtfup cli --provider gemini -- …` + `.gemini/settings.json` | Transparent proxy plus `hook-gemini-after-tool` / `hook-gemini-before-agent` for `AfterTool` / `BeforeAgent`. |
 | **Qwen Code** | `clawtfup cli --provider qwen -- …` + `.qwen/settings.json` | `hook-qwen-post-tool-use` (PostToolUse block); `hook-qwen-user-prompt-submit` (context inject); `hook-qwen-stop` (Stop → top-level `decision: block`). |
+| **Kilocode / OpenCode** | `clawtfup cli --provider kilo -- …` + `.opencode/plugins/` | JS plugin model (`tool.execute.after`): throws on violation so agent sees findings. No shell-hook channel. |
 | **Antigravity / VS Code** | `.github/hooks/clawtfup.json` + wrappers | `hook-codex-*` for `PostToolUse` / `UserPromptSubmit`; `hook-vscode-stop` for `Stop`. |
 
 ### Hook contract
@@ -1038,7 +1133,8 @@ clawtfup exposes the following subcommands:
 | `clawtfup hook-cursor-after-file-edit` | Cursor | afterFileEdit | 🟢 Exit 2 + stderr findings on failure; visible in Output → Hooks. |
 | `clawtfup hook-cursor-stop` | Cursor | stop | 🔴 Exit 2 on failure; marks session failed as a final gate. |
 | `clawtfup hook-vscode-stop` | VS Code / Antigravity | Stop | 🔴 Blocks session end (`hookSpecificOutput.decision: block`). |
-| `clawtfup cli --provider NAME [-- args…]` | all | — | 🔀 Transparent proxy — spawns `claude`, `codex`, `gemini`, or `qwen` with PTY-aware I/O relay. |
+| `clawtfup cli --provider kilo [-- args…]` | Kilocode / OpenCode | — | 🔌 Transparent proxy for `kilo`. Policy enforced via `.opencode/plugins/clawtfup-policy.mjs` (plugin model, not shell hooks). |
+| `clawtfup cli --provider NAME [-- args…]` | all | — | 🔀 Transparent proxy — spawns `claude`, `codex`, `gemini`, `qwen`, or `kilo` with PTY-aware I/O relay. |
 
 ### `clawtfup evaluate`
 

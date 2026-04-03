@@ -195,3 +195,25 @@ def run_qwen_proxy(
         env_bin_var="CLAWTFUP_QWEN_BIN",
         default_bin="qwen",
     )
+
+
+def run_kilo_proxy(
+    child_argv: list[str],
+    workspace: Path,
+    *,
+    kilo_executable: str | None = None,
+) -> int:
+    """
+    Spawn Kilocode / Kilo CLI (``kilo`` or *kilo_executable*) with *child_argv* and relay stdio.
+
+    Policy enforcement uses the OpenCode-compatible plugin under ``.opencode/plugins/`` (see
+    ``clawtfup-policy.mjs``). Kilo reads the same config layout as OpenCode under
+    ``~/.config/kilo/`` and project ``opencode.json`` / ``.opencode/``.
+    """
+    return _run_agent_cli_proxy(
+        child_argv,
+        workspace,
+        executable=kilo_executable,
+        env_bin_var="CLAWTFUP_KILO_BIN",
+        default_bin="kilo",
+    )
