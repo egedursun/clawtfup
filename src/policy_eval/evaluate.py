@@ -21,7 +21,7 @@ from .git_workspace import index_at_git_head
 from .opa_runner import opa_eval_query, opa_version, resolve_opa_binary
 from .patch_apply import apply_unified_diff, combined_changed_content
 from .workspace import IndexResult as WorkspaceIndexResult
-from .workspace import index_workspace
+from .workspace import _load_cfupignore_spec, _load_gitignore_spec, index_workspace
 
 
 def opa_bundle_dir(bundle_root: Path) -> Path:
@@ -43,7 +43,8 @@ class EvaluateOptions:
     max_files: int = 10_000
     max_file_bytes: int = 512 * 1024
     exclude_globs: list[str] = field(default_factory=list)
-    use_gitignore: bool = True
+    use_gitignore: bool = False
+    use_cfupignore: bool = True
     opa_binary: str | None = None
     #: e.g. ``git_head``, ``diff_file``, ``stdin`` — recorded in the report for transparency
     change_source: str | None = None
@@ -83,6 +84,7 @@ def build_workspace_fragment(
     max_file_bytes: int,
     exclude_globs: list[str],
     use_gitignore: bool,
+    use_cfupignore: bool = True,
     index_from_git_head: bool = False,
     full_scan: bool = True,
     scan_prefix: str | None = None,
@@ -94,6 +96,7 @@ def build_workspace_fragment(
             max_file_bytes=max_file_bytes,
             exclude_globs=exclude_globs,
             use_gitignore=use_gitignore,
+            use_cfupignore=use_cfupignore,
         )
     else:
         idx = index_workspace(
@@ -102,6 +105,7 @@ def build_workspace_fragment(
             max_file_bytes=max_file_bytes,
             exclude_globs=exclude_globs,
             use_gitignore=use_gitignore,
+            use_cfupignore=use_cfupignore,
         )
     try:
         files_after, changed_paths = apply_unified_diff(idx.files, patch_text)
@@ -155,10 +159,13 @@ def evaluate(opts: EvaluateOptions) -> dict[str, Any]:
         max_file_bytes=opts.max_file_bytes,
         exclude_globs=opts.exclude_globs,
         use_gitignore=opts.use_gitignore,
+        use_cfupignore=opts.use_cfupignore,
         index_from_git_head=opts.index_from_git_head,
         full_scan=opts.full_scan,
         scan_prefix=opts.scan_prefix,
     )
+
+    ws = opts.workspace.resolve()
 
     # OPA -i document root is Rego's `input`
     merged_input: dict[str, Any] = deep_merge(frag, file_overlay)
@@ -228,6 +235,12 @@ def evaluate(opts: EvaluateOptions) -> dict[str, Any]:
             "index_warnings": widx.warnings,
             "skipped_binary_count": len(widx.skipped_binary),
             "skipped_large_count": len(widx.skipped_large),
+            "cfupignore_active": bool(
+                opts.use_cfupignore and _load_cfupignore_spec(ws) is not None
+            ),
+            "gitignore_applied": bool(
+                opts.use_gitignore and _load_gitignore_spec(ws) is not None
+            ),
         },
         "results": results,
         "engine": {

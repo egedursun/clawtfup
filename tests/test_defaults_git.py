@@ -22,7 +22,7 @@ def _opa_available() -> bool:
 
 
 @pytest.mark.skipif(not _opa_available(), reason="OPA not installed")
-def test_defaults_git_diff_head(tmp_path: Path) -> None:
+def test_evaluate_full_scan_uses_working_tree_without_git_diff(tmp_path: Path) -> None:
     root = Path(__file__).resolve().parent
     src = root / "fixtures" / "sample_project"
     shutil.copytree(src / ".clawtfup", tmp_path / ".clawtfup")
@@ -66,7 +66,7 @@ def test_defaults_git_diff_head(tmp_path: Path) -> None:
             "evaluate",
             "--workspace",
             str(tmp_path),
-            "--no-gitignore",
+            "--no-cfupignore",
         ],
         cwd=str(tmp_path),
         capture_output=True,
@@ -74,7 +74,8 @@ def test_defaults_git_diff_head(tmp_path: Path) -> None:
     )
     assert proc.returncode == 2, proc.stderr
     report = json.loads(proc.stdout)
-    assert report["inputs"]["change_source"] == "git_head"
+    assert report["inputs"]["change_source"] == "working_tree"
+    assert report["inputs"]["index_baseline"] == "working_tree"
     assert report["inputs"]["scan_mode"] == "full_tree"
     assert not report["allow"]
     assert report["findings"][0]["code"] == "UNSAFE_EVAL"
@@ -90,4 +91,65 @@ def test_cli_help_no_policies_flag(tmp_path: Path) -> None:
     assert "--diff-file" in proc.stdout
     assert "--diff-only" in proc.stdout
     assert "--no-strict" in proc.stdout
+    assert "--use-gitignore" in proc.stdout
+    assert "--no-cfupignore" in proc.stdout
     assert "--policies" not in proc.stdout
+
+
+@pytest.mark.skipif(not _opa_available(), reason="OPA not installed")
+def test_diff_only_without_diff_file_still_uses_git_head(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parent
+    src = root / "fixtures" / "sample_project"
+    shutil.copytree(src / ".clawtfup", tmp_path / ".clawtfup")
+    shutil.copy2(src / "app.py", tmp_path / "app.py")
+
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "t@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "t"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "add", "app.py"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    _fn = "ev" + "al"
+    app = tmp_path / "app.py"
+    app.write_text(
+        app.read_text(encoding="utf-8").replace(
+            'return "hello"', f'return str({_fn}("1+1"))'
+        ),
+        encoding="utf-8",
+    )
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "policy_eval",
+            "evaluate",
+            "--workspace",
+            str(tmp_path),
+            "--diff-only",
+            "--no-cfupignore",
+        ],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 2, proc.stderr
+    report = json.loads(proc.stdout)
+    assert report["inputs"]["change_source"] == "git_head"
+    assert report["inputs"]["index_baseline"] == "git_head"
+    assert report["inputs"]["scan_mode"] == "diff_only"

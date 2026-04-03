@@ -1,0 +1,11 @@
+# clawtfup full-tree scan — same syntax as .gitignore (gitwildmatch)
+.DS_Store
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+*.pyc
+*.egg-info/
+.env
+tools/opa
+tests/fixtures/patches/

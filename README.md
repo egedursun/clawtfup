@@ -80,11 +80,11 @@ flowchart LR
 
 | | |
 |:---|:---|
-| **Indexes** | Text files under project root (committed tree via git or disk walk). |
-| **Applies** | Unified diff (`--diff-file`, stdin, or default `git diff HEAD`) to produce the proposed file state. |
+| **Indexes** | Text files under project root (disk walk by default; optional git HEAD baseline only with `--diff-only` and no `--diff-file`). |
+| **Applies** | Optional unified diff (`--diff-file` or stdin). Default full scan uses **no** diff—current files on disk are the evaluated state. |
 | **Evaluates** | Your `.clawtfup/policies/` Rego bundle via OPA against the full workspace. |
 | **Enriches** | Findings with `.clawtfup/feedback/` remediation text and references. |
-| **Default scan** | **Full tree**—committed code is in scope, not only touched lines. Use `--diff-only` when you intentionally want a narrower check. |
+| **Default scan** | **Full tree** over the working tree. Exclusions: **`.cfupignore`** (gitignore syntax, on by default), optional **`.gitignore`** via `--use-gitignore`. Use `--diff-only` for a narrower diff-scoped check. |
 | **Strict mode** | Exit **2** if `allow` is false or any error-level finding—unless `--no-strict`. |
 
 ---
@@ -95,7 +95,7 @@ flowchart LR
 pip install -e .
 ```
 
-You also need **OPA** on `PATH` or a binary at **`tools/opa`**. **Git** is expected if you rely on the default `git diff HEAD`.
+You also need **OPA** on `PATH` or a binary at **`tools/opa`**. **Git** is only required for **`--diff-only`** when you do not pass **`--diff-file`** (that mode still uses `git diff HEAD`).
 
 ---
 
@@ -641,7 +641,7 @@ fi
 | Pattern | Command | When to use |
 |:--------|:--------|:------------|
 | **Stdin patch** | `clawtfup evaluate --diff-file - --pretty < patch` | Agent emits a unified diff before touching disk. |
-| **Git after apply** | `clawtfup evaluate --pretty` | Agent edits files; default `git diff HEAD` captures them. |
+| **Disk after apply** | `clawtfup evaluate --pretty` | Indexes the working tree as-is (no git diff). |
 | **Saved diff file** | `clawtfup evaluate --diff-file /tmp/p.patch --pretty` | Diff written to temp file by orchestrator. |
 | **CI gate** | `clawtfup evaluate` (no `--pretty`) | GitHub Actions / pre-merge; exit code drives pass/fail. |
 | **Prefix scan** | `clawtfup evaluate --scan-prefix src/api --pretty` | Large monorepo; gate only the changed bounded context. |
@@ -685,15 +685,17 @@ fi
     "policy_bundle": "/absolute/path/to/.clawtfup/policies",
     "opa_data_dir": "/absolute/path/to/.clawtfup/policies/rego",
     "changed_paths": ["src/db/queries.py"],
-    "change_source": "git_head",
+    "change_source": "working_tree",
     "scan_mode": "full_tree",
     "scan_prefix": null,
-    "index_baseline": "git_head",
-    "patch_stats": { "bytes": 312, "lines": 14 },
+    "index_baseline": "working_tree",
+    "patch_stats": { "bytes": 0, "lines": 0 },
     "merged_input_sources": [],
     "index_warnings": [],
     "skipped_binary_count": 0,
-    "skipped_large_count": 0
+    "skipped_large_count": 0,
+    "cfupignore_active": true,
+    "gitignore_applied": false
   },
   "results": { "data.code_edits.report": { "allow": false, "violations": ["..."] } },
   "engine": { "opa_version": "0.68.0", "queries": ["data.code_edits.report"] },
@@ -725,7 +727,7 @@ fi
 | `policy_bundle` | Absolute path to the policies directory. |
 | `opa_data_dir` | Path passed to `opa eval -d` (usually `policies/rego/`). |
 | `changed_paths` | Paths in scope for this evaluation. |
-| `change_source` | `git_head` / `diff_file` / `stdin`. |
+| `change_source` | `working_tree` (default full scan) / `git_head` (`--diff-only` without file) / `diff_file` / `stdin`. |
 | `scan_mode` | `full_tree` / `diff_only` / `prefix`. |
 | `scan_prefix` | Value of `--scan-prefix`, or `null`. |
 | `index_baseline` | `git_head` (committed tree) or `working_tree` (disk walk). |
@@ -734,6 +736,8 @@ fi
 | `index_warnings` | Paths that triggered indexing warnings (e.g. read errors). |
 | `skipped_binary_count` | Files skipped because they appeared binary. |
 | `skipped_large_count` | Files skipped for exceeding `--max-file-bytes`. |
+| `cfupignore_active` | `true` when `.cfupignore` was loaded with at least one pattern. |
+| `gitignore_applied` | `true` when `--use-gitignore` was set and `.gitignore` had patterns. |
 
 ### `findings[]` fields
 
@@ -800,15 +804,16 @@ clawtfup evaluate [options]
 | Flag | Default | Effect |
 |:-----|:--------|:-------|
 | `--workspace DIR` | cwd | Project root; policies expected at `<workspace>/.clawtfup/policies/`. |
-| `--diff-file PATH\|-` | — | Unified diff file or stdin (`-`). Overrides default `git diff HEAD`. |
-| `--diff-only` | off | Run policy only on diff-touched paths. Weaker than full-tree; use deliberately. |
+| `--diff-file PATH\|-` | — | Unified diff applied on top of the disk index. |
+| `--diff-only` | off | Run policy only on diff-touched paths (`--diff-file` / stdin, or `git diff HEAD` if no file given). |
 | `--scan-prefix PATH` | — | Only index and evaluate under this relative path (e.g. `src/api`). |
 | `--input-json PATH` | — | JSON file deep-merged into OPA input after the built-in fragment. |
 | `--query Q` | manifest | Repeatable. Override OPA queries from `policy_eval.yaml`. |
 | `--max-files N` | 10 000 | Indexing cap; `0` = no cap. |
 | `--max-file-bytes N` | 524 288 | Skip files larger than N bytes; `0` = no cap. |
 | `--exclude-glob G` | — | Repeatable `fnmatch` on workspace-relative paths. |
-| `--no-gitignore` | off | Index paths `.gitignore` would hide. |
+| `--use-gitignore` | off | Also apply `.gitignore` when indexing (prefer `.cfupignore` for scan scope). |
+| `--no-cfupignore` | off | Do not apply `.cfupignore` when indexing. |
 | `--pretty` | off | Pretty-print JSON output. |
 | `--no-strict` | off | Exit 0 even on deny or error findings. **Not for agents.** |
 
@@ -859,8 +864,9 @@ Policy only sees **indexed** files. Exclusions are applied at indexing time, not
 
 | Mechanism | Behaviour |
 |:----------|:----------|
-| `.gitignore` | **On by default.** Excluded files are not indexed. |
-| `--no-gitignore` | Disable that filter (expect noise without other narrowing). |
+| `.cfupignore` | **On by default** when the file exists (same syntax as `.gitignore`). Excluded paths are not indexed. |
+| `--no-cfupignore` | Index every non-internal path even if `.cfupignore` would exclude it. |
+| `.gitignore` | **Off by default.** Pass `--use-gitignore` to also hide gitignored paths. |
 | `--exclude-glob G` | Shell-style globs on relative paths; repeatable. |
 | `--scan-prefix PATH` | Index and evaluate only one subtree. |
 | Always skipped | `.git/` and `.clawtfup/` are never treated as product source. |
@@ -918,9 +924,10 @@ try:
         EvaluateOptions(
             workspace=Path("/path/to/project"),
             bundle_root=Path("/path/to/project/.clawtfup/policies"),
-            patch_text="",            # empty string → uses git diff HEAD
-            change_source="git_head",
-            index_from_git_head=True,
+            patch_text="",            # empty: evaluate disk state as-is
+            change_source="working_tree",
+            index_from_git_head=False,
+            use_cfupignore=True,
             full_scan=True,           # full_tree mode (default CLI behaviour)
         )
     )
@@ -1036,14 +1043,13 @@ Full policy authoring guide: **[.clawtfup/policies/README.md](.clawtfup/policies
 
 ## Indexing baseline
 
-The workspace index uses different baselines depending on the diff source:
+| Mode | Index baseline | Patch |
+|:-----|:---------------|:------|
+| **Default full scan** (no `--diff-file`) | **Disk walk** of the working tree | None (`patch_stats` bytes = 0). |
+| **`--diff-file` / stdin** | Disk walk | Your unified diff applied on top. |
+| **`--diff-only` without `--diff-file`** | **git HEAD** + untracked (legacy) | `git diff HEAD` |
 
-| Diff source | Index baseline | Why |
-|:------------|:--------------|:----|
-| Default (`git diff HEAD`) | **git HEAD** + untracked files | Ensures the index matches what git considers committed; consistent across checkouts. |
-| `--diff-file PATH` or stdin | **Disk walk** (working tree) | No git context assumed; reads files as they exist on disk at evaluation time. |
-
-This matters when you have uncommitted files you want policy to see: with the default git source they appear as untracked and are indexed; with an explicit diff file the full working tree is indexed instead.
+Add a **`.cfupignore`** at the repo root to exclude paths from indexing (vendor trees, build output, secrets) using the same rules as `.gitignore`.
 
 ---
 

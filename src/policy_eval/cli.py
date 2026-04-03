@@ -28,8 +28,10 @@ def main(argv: list[str] | None = None) -> int:
         prog="clawtfup",
         description=(
             "Evaluate workspace against OPA policies in <workspace>/.clawtfup/policies/. "
-            "By default the whole indexed tree is checked (full scan); the unified diff "
-            "still updates files_after vs baseline. Use --diff-only to check only diff-touched paths."
+            "Default full scan indexes the working tree (no git diff). Use .cfupignore "
+            "(gitignore-style) to exclude paths. Use --diff-only without --diff-file to "
+            "scope changes to git diff HEAD (legacy). "
+            "Pass --diff-file to apply a unified diff on top of the disk index."
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -91,16 +93,21 @@ def main(argv: list[str] | None = None) -> int:
         help="Exclude workspace paths (glob, repeatable).",
     )
     ev.add_argument(
-        "--no-gitignore",
+        "--use-gitignore",
         action="store_true",
-        help="Do not apply .gitignore rules when indexing.",
+        help="Also apply .gitignore patterns when indexing (off by default; prefer .cfupignore).",
+    )
+    ev.add_argument(
+        "--no-cfupignore",
+        action="store_true",
+        help="Do not apply .cfupignore rules when indexing.",
     )
     ev.add_argument(
         "--diff-only",
         action="store_true",
         help=(
-            "Only run policy on paths touched by git diff HEAD or --diff-file (legacy mode). "
-            "Default is full-tree scan of all indexed files."
+            "Only run policy on paths touched by the unified diff (--diff-file / stdin, "
+            "or git diff HEAD when no file is given). Default is full-tree scan."
         ),
     )
     ev.add_argument(
@@ -314,13 +321,18 @@ def _evaluate_cmd(args: argparse.Namespace) -> int:
     use_full_scan = (scan_prefix is None) and (not args.diff_only)
 
     change_source: str
+    patch_text: str
     if diff_arg is None:
-        try:
-            patch_text = git_diff_head(workspace)
-        except PolicyEvalError as e:
-            sys.stderr.write(json.dumps({"error": str(e)}) + "\n")
-            return 1
-        change_source = "git_head"
+        if use_full_scan:
+            patch_text = ""
+            change_source = "working_tree"
+        else:
+            try:
+                patch_text = git_diff_head(workspace)
+            except PolicyEvalError as e:
+                sys.stderr.write(json.dumps({"error": str(e)}) + "\n")
+                return 1
+            change_source = "git_head"
     elif diff_arg == "-":
         patch_text = sys.stdin.read()
         change_source = "stdin"
@@ -341,7 +353,8 @@ def _evaluate_cmd(args: argparse.Namespace) -> int:
         max_files=args.max_files,
         max_file_bytes=args.max_file_bytes,
         exclude_globs=list(args.exclude_globs or []),
-        use_gitignore=not args.no_gitignore,
+        use_gitignore=bool(args.use_gitignore),
+        use_cfupignore=not args.no_cfupignore,
         change_source=change_source,
         index_from_git_head=(change_source == "git_head"),
         full_scan=use_full_scan,

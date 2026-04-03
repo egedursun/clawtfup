@@ -10,8 +10,9 @@ from .exceptions import PolicyEvalError
 from .workspace import (
     IndexResult,
     _excluded_by_glob,
-    _ignored,
+    _load_cfupignore_spec,
     _load_gitignore_spec,
+    _skipped_by_ignore_rules,
 )
 
 
@@ -22,6 +23,7 @@ def index_at_git_head(
     max_file_bytes: int,
     exclude_globs: list[str],
     use_gitignore: bool,
+    use_cfupignore: bool = True,
 ) -> IndexResult:
     """
     ``files`` = committed tree at ``HEAD`` for tracked paths, merged with untracked files on disk.
@@ -32,7 +34,8 @@ def index_at_git_head(
     if not git:
         raise PolicyEvalError("Git not on PATH (needed to index at HEAD).")
     root = root.resolve()
-    spec = _load_gitignore_spec(root) if use_gitignore else None
+    git_spec = _load_gitignore_spec(root) if use_gitignore else None
+    cfup_spec = _load_cfupignore_spec(root) if use_cfupignore else None
     globs = list(exclude_globs or [])
     out = IndexResult()
     count = 0
@@ -41,7 +44,13 @@ def index_at_git_head(
         nonlocal count
         if ".git" in rel_posix.split("/") or ".clawtfup" in rel_posix.split("/"):
             return
-        if _ignored(rel_posix, spec) or _excluded_by_glob(rel_posix, globs):
+        if _skipped_by_ignore_rules(
+            rel_posix,
+            git_spec=git_spec,
+            cfup_spec=cfup_spec,
+            use_gitignore=use_gitignore,
+            use_cfupignore=use_cfupignore,
+        ) or _excluded_by_glob(rel_posix, globs):
             return
         if max_file_bytes > 0 and len(raw) > max_file_bytes:
             out.skipped_large.append(rel_posix)

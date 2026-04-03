@@ -25,3 +25,12 @@ def test_index_max_file_bytes_zero_allows_large(tmp_path: Path) -> None:
     r = index_workspace(tmp_path, max_files=10, max_file_bytes=0, use_gitignore=False)
     assert r.files["big.txt"] == big
     assert not r.skipped_large
+
+
+def test_cfupignore_excludes_paths(tmp_path: Path) -> None:
+    (tmp_path / ".cfupignore").write_text("ignored.txt\n", encoding="utf-8")
+    (tmp_path / "keep.txt").write_text("k", encoding="utf-8")
+    (tmp_path / "ignored.txt").write_text("i", encoding="utf-8")
+    r = index_workspace(tmp_path, max_files=10, max_file_bytes=1024, use_cfupignore=True)
+    assert "keep.txt" in r.files
+    assert "ignored.txt" not in r.files

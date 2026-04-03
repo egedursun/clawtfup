@@ -1,8 +1,7 @@
 
-1. Native .cfupignore file for exclusion of files from evaluation checks, rather than using .gitignore.
-3. Add aider.
-4. Add cline.
-5. Add gemini cli.
-6. Add antigravity.
-7. Add HTTP port interceptor.
-8. Add charm.
+1. Add aider.
+2. Add cline.
+3. Add gemini cli.
+4. Add antigravity.
+5. Add HTTP port interceptor.
+6. Add charm.
