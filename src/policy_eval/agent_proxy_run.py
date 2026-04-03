@@ -239,3 +239,45 @@ def run_crush_proxy(
         env_bin_var="CLAWTFUP_CRUSH_BIN",
         default_bin="crush",
     )
+
+
+def run_aider_proxy(
+    child_argv: list[str],
+    workspace: Path,
+    *,
+    aider_executable: str | None = None,
+) -> int:
+    """
+    Spawn Aider (``aider`` or *aider_executable*) with *child_argv* and relay stdio.
+
+    Aider has no Claude-style JSON hooks. Use ``--lint-cmd`` (or a shell wrapper) to run
+    ``clawtfup evaluate`` after edits, or run ``evaluate`` manually — see project README.
+    """
+    return _run_agent_cli_proxy(
+        child_argv,
+        workspace,
+        executable=aider_executable,
+        env_bin_var="CLAWTFUP_AIDER_BIN",
+        default_bin="aider",
+    )
+
+
+def run_cline_proxy(
+    child_argv: list[str],
+    workspace: Path,
+    *,
+    cline_executable: str | None = None,
+) -> int:
+    """
+    Spawn Cline CLI (``cline`` or *cline_executable*) with *child_argv* and relay stdio.
+
+    Cline CLI has no documented stdin/JSON hook channel like Claude Code. After headless or
+    interactive sessions, run ``clawtfup evaluate`` manually or from a shell wrapper — see README.
+    """
+    return _run_agent_cli_proxy(
+        child_argv,
+        workspace,
+        executable=cline_executable,
+        env_bin_var="CLAWTFUP_CLINE_BIN",
+        default_bin="cline",
+    )

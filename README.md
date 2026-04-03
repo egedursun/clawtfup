@@ -10,14 +10,16 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-0f172a?style=flat-square)](LICENSE)
 [![OPA](https://img.shields.io/badge/policy-OPA-0f172a?style=flat-square&logo=openpolicyagent&logoColor=white)](https://www.openpolicyagent.org/)
 
-[![Claude Code](https://img.shields.io/badge/Claude_Code-hook_ready-0f172a?style=flat-square&logo=anthropic&logoColor=white)](https://claude.ai/code)
-[![Codex](https://img.shields.io/badge/OpenAI_Codex-hook_ready-0f172a?style=flat-square&logo=openai&logoColor=white)](https://openai.com/codex)
-[![Gemini CLI](https://img.shields.io/badge/Gemini_CLI-hook_ready-0f172a?style=flat-square&logo=googlegemini&logoColor=white)](https://github.com/google-gemini/gemini-cli)
-[![Qwen Code](https://img.shields.io/badge/Qwen_Code-hook_ready-0f172a?style=flat-square)](https://github.com/QwenLM/qwen-code)
-[![Kilocode](https://img.shields.io/badge/Kilocode-plugin_ready-0f172a?style=flat-square)](https://kilocode.ai/docs/cli)
-[![Crush](https://img.shields.io/badge/Crush_(Charm)-CLI_proxy-0f172a?style=flat-square)](https://github.com/charmbracelet/crush)
-[![Cursor](https://img.shields.io/badge/Cursor-hook_ready-0f172a?style=flat-square&logo=cursor&logoColor=white)](https://cursor.com)
-[![VS Code](https://img.shields.io/badge/VS_Code_%2F_Antigravity-hook_ready-0f172a?style=flat-square&logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-hooks-0f172a?style=flat-square&logo=anthropic&logoColor=white)](https://claude.ai/code)
+[![Codex](https://img.shields.io/badge/OpenAI_Codex-hooks-0f172a?style=flat-square&logo=openai&logoColor=white)](https://openai.com/codex)
+[![Gemini CLI](https://img.shields.io/badge/Gemini_CLI-hooks-0f172a?style=flat-square&logo=googlegemini&logoColor=white)](https://github.com/google-gemini/gemini-cli)
+[![Qwen Code](https://img.shields.io/badge/Qwen_Code-hooks-0f172a?style=flat-square)](https://github.com/QwenLM/qwen-code)
+[![Cursor](https://img.shields.io/badge/Cursor-hooks-0f172a?style=flat-square&logo=cursor&logoColor=white)](https://cursor.com)
+[![VS Code](https://img.shields.io/badge/VS_Code_%2F_Antigravity-hooks-0f172a?style=flat-square&logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com)
+[![Kilocode](https://img.shields.io/badge/Kilocode-plugin-0f172a?style=flat-square)](https://kilocode.ai/docs/cli)
+[![Crush](https://img.shields.io/badge/Charm_Crush-proxy-0f172a?style=flat-square)](https://github.com/charmbracelet/crush)
+[![Aider](https://img.shields.io/badge/Aider-proxy_%2B_lint--cmd-0f172a?style=flat-square)](https://aider.chat)
+[![Cline CLI](https://img.shields.io/badge/Cline_CLI-proxy-0f172a?style=flat-square)](https://docs.cline.bot/cline-cli/overview)
 
 **Your LLM agent cannot ship a policy violation. Not accidentally. Not silently. Not ever.**
 
@@ -71,16 +73,18 @@ flowchart LR
 **Pre-hook vs post-hook.** clawtfup runs *after* the model proposes edits and *before* they land on disk or merge. That makes it a **post-LLM / pre-apply hook**—the natural enforcement point. By default it evaluates the **current disk state** with no diff; you can also pipe in a unified diff to evaluate a proposed change before it's even written. Run it in CI as a **pre-merge gate** to catch anything that slipped through local hooks.
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  Agent (Claude Code · Codex · Gemini · Qwen Code · Kilo · Crush · Cursor · VS Code · Aider) │
-│                                                                  │
-│  pre-hook      → inject workspace status (UserPromptSubmit /     │
-│                  BeforeAgent / beforeSubmitPrompt)               │
-│  [LLM turn]    → model edits files                               │
-│  post-hook     → clawtfup evaluate ← enforcement point           │
-│  on exit 0     → continue / apply / commit                       │
-│  on exit 2     → findings + remediation fed back; model fixes    │
-└──────────────────────────────────────────────────────────────────┘
+  Supported agents
+  ────────────────
+  Claude Code · Codex · Gemini · Qwen Code · Kilo · Crush · Cline · Cursor · VS Code · Aider
+
+  Agent session lifecycle
+  ───────────────────────
+  pre-hook   → inject workspace status into model context
+               (UserPromptSubmit / BeforeAgent / beforeSubmitPrompt / CRUSH.md / CLINE.md)
+  [LLM turn] → model edits files
+  post-hook  → clawtfup evaluate   ← enforcement point
+  exit 0     → continue / apply / commit
+  exit 2     → findings + remediation fed back; model must fix before advancing
 ```
 
 ---
@@ -1011,34 +1015,120 @@ Before marking **any** coding task as complete you must run:
 
 Use **Output → Hooks** in Cursor to inspect hook JSON, exit codes, and stderr output.
 
-### Aider / custom runners [![shell integration](https://img.shields.io/badge/integration-shell_hook-0f172a?style=flat-square)]()
+### ![Aider](https://img.shields.io/badge/Aider-0f172a?style=flat-square) Aider (`aider`)
 
-Any runner that can shell out after a model turn integrates with the same two-line pattern:
+[![CLI proxy](https://img.shields.io/badge/CLI_proxy-PTY_aware-0f172a?style=flat-square)]()
+[![lint-cmd](https://img.shields.io/badge/--lint--cmd-after_edits-2563eb?style=flat-square)](https://aider.chat/docs/config/options.html)
+
+[Aider](https://aider.chat) is a terminal pair-programmer (`pip install aider-chat`; binary **`aider`**). It does not use the same stdin/JSON hook envelope as Claude Code or Codex. clawtfup integrates in three ways:
+
+1. **CLI proxy** — run Aider with a guaranteed workspace cwd (same PTY/pipe relay as other providers):
+
+   ```bash
+   clawtfup cli --provider aider -- --help
+   ```
+
+   Spawns **`aider`** (or **`$CLAWTFUP_AIDER_BIN`**). Requires `.clawtfup/policies/` to exist before spawn.
+
+   ```bash
+   CLAWTFUP_AIDER_BIN=/path/to/aider clawtfup cli --provider aider -- src/main.py
+   ```
+
+2. **`--lint-cmd`** — Aider can run a shell command after file changes; non-zero exit and command output are shown to the model. Point it at **`clawtfup evaluate`** (strict) so violations surface inside the session. Example:
+
+   ```bash
+   aider --lint-cmd "clawtfup evaluate" src/
+   ```
+
+   Use a project-local venv or full path to `clawtfup` if it is not on the default `PATH` Aider sees.
+
+3. **Manual / scripted gate** — the same evaluate pattern every shell-driven runner can use:
+
+   ```bash
+   # After applying model edits to disk
+   clawtfup evaluate --pretty
+   if [ $? -ne 0 ]; then
+     clawtfup evaluate --pretty | jq '.findings[] | {code, message, remediation: .feedback.remediation}'
+   fi
+   ```
+
+### ![Cline CLI](https://img.shields.io/badge/Cline_CLI-0f172a?style=flat-square) Cline CLI (`cline`)
+
+[![CLI proxy](https://img.shields.io/badge/CLI_proxy-PTY_aware-0f172a?style=flat-square)]()
+[![CLINE.md](https://img.shields.io/badge/CLINE.md-context_injection-2563eb?style=flat-square)]()
+[![docs](https://img.shields.io/badge/docs-cline.bot-2563eb?style=flat-square)](https://docs.cline.bot/cline-cli/overview)
+
+[Cline CLI](https://docs.cline.bot/cline-cli/overview) runs Cline in the terminal (`npm install -g cline`; binary **`cline`**). It supports [interactive](https://docs.cline.bot/cline-cli/interactive-mode) and [headless](https://docs.cline.bot/cline-cli/three-core-flows) flows (`-y` / `--json`, piped stdin). There is no documented stdin/JSON hook envelope for third-party gates like Claude Code’s PostToolUse — clawtfup does not ship Cline-specific hook shims. Enforcement uses two complementary approaches instead.
+
+#### Approach 1 — `CLINE.md` context injection
+
+Cline CLI loads `CLINE.md` from the project root as standing instructions for every session (same pattern as `CLAUDE.md` for Claude Code and `CRUSH.md` for Crush). Create **`CLINE.md`** to make the policy gate part of every task:
+
+```markdown
+# Policy gate
+
+Before marking any coding task as complete, run:
+
+    clawtfup evaluate --pretty
+
+- Exit **0** → workspace is clean; task is done.
+- Exit **2** → read `findings[]`, fix **application code** to satisfy each
+  violation, re-run until clean.
+- Do not pass `--no-strict` to skip a violation.
+- Do not edit `.clawtfup/policies/` or `.clawtfup/feedback/` to weaken rules
+  unless the user explicitly asks.
+```
+
+Cline reads this on startup and honours it as a standing rule across the entire session. Combine with `AGENTS.md` (which clawtfup also ships) for redundant coverage.
+
+#### Approach 2 — CLI proxy (transparent agent wrapping) ![PTY](https://img.shields.io/badge/I%2FO-PTY_aware-0f172a?style=flat-square)
+
+Same PTY/pipe relay as other providers:
 
 ```bash
-# After applying model edits to disk
-clawtfup evaluate --pretty
-if [ $? -ne 0 ]; then
-  clawtfup evaluate --pretty | jq '.findings[] | {code, message, remediation: .feedback.remediation}'
-fi
+clawtfup cli --provider cline -- --help
 ```
+
+Spawns **`cline`** (or **`$CLAWTFUP_CLINE_BIN`**). Requires `.clawtfup/policies/` before spawn.
+
+```bash
+CLAWTFUP_CLINE_BIN=/path/to/cline clawtfup cli --provider cline -- -y "Run tests and fix failures"
+```
+
+#### Approach 3 — manual gate in workflow
+
+Run `clawtfup evaluate --pretty` after a headless task completes, or wrap `cline …` in a script that gates on exit. For CI, chain: `cline -y "…"` then `clawtfup evaluate` (strict):
+
+```bash
+# After cline finishes a task
+clawtfup evaluate --pretty
+# On failure, show the agent what to fix:
+clawtfup evaluate --pretty | jq ‘.findings[] | {code, message, remediation: .feedback.remediation}’
+```
+
+> When Cline publishes a documented hook API, clawtfup will add native hook shims. Until then, `CLINE.md` + the proxy is the recommended integration.
+
+### Custom runners (shell) [![shell integration](https://img.shields.io/badge/integration-shell_hook-0f172a?style=flat-square)]()
+
+Any runner that can shell out after a model turn can use the same manual `evaluate` pattern as in step 3 above.
 
 ### Integration patterns
 
-| Pattern | Command | When to use |
-|:--------|:--------|:------------|
-| **Stdin patch** | `clawtfup evaluate --diff-file - --pretty < patch` | Agent emits a unified diff before touching disk. |
-| **Disk after apply** | `clawtfup evaluate --pretty` | Indexes the working tree as-is (no git diff). |
-| **Saved diff file** | `clawtfup evaluate --diff-file /tmp/p.patch --pretty` | Diff written to temp file by orchestrator. |
-| **CI gate** | `clawtfup evaluate` (no `--pretty`) | GitHub Actions / pre-merge; exit code drives pass/fail. |
-| **Prefix scan** | `clawtfup evaluate --scan-prefix src/api --pretty` | Large monorepo; gate only the changed bounded context. |
-| **Cursor** | `.cursor/hooks.json` + `hook-cursor-*` commands | Native lifecycle hooks: gate prompts, check every edit, enforce on completion. |
-| **OpenAI Codex** | `clawtfup cli --provider codex -- …` + `.codex/hooks.json` | Transparent proxy plus `hook-codex-*` commands wired like Claude hooks. |
-| **Gemini CLI** | `clawtfup cli --provider gemini -- …` + `.gemini/settings.json` | Transparent proxy plus `hook-gemini-after-tool` / `hook-gemini-before-agent` for `AfterTool` / `BeforeAgent`. |
-| **Qwen Code** | `clawtfup cli --provider qwen -- …` + `.qwen/settings.json` | `hook-qwen-post-tool-use` (PostToolUse block); `hook-qwen-user-prompt-submit` (context inject); `hook-qwen-stop` (Stop → top-level `decision: block`). |
-| **Kilocode / OpenCode** | `clawtfup cli --provider kilo -- …` + `.opencode/plugins/` | JS plugin model (`tool.execute.after`): throws on violation so agent sees findings. No shell-hook channel. |
-| **Charm Crush** | `clawtfup cli --provider crush -- …` | Transparent proxy for `crush`. No published hook API in `crush.json` — use `evaluate` in workflow or context files. |
-| **Antigravity / VS Code** | `.github/hooks/clawtfup.json` + wrappers | `hook-codex-*` for `PostToolUse` / `UserPromptSubmit`; `hook-vscode-stop` for `Stop`. |
+| Provider / pattern | Integration depth | Notes |
+|:-------------------|:-----------------|:------|
+| **Claude Code** | `.claude/settings.json` + `hook-post-tool-use` / `hook-user-prompt-submit` | Full turn-blocking + ambient context. Two hooks, zero glue code. |
+| **OpenAI Codex** | `.codex/hooks.json` + `hook-codex-*` | Same JSON protocol as Claude Code; `codex_hooks = true` in config.toml required. |
+| **Gemini CLI** | `.gemini/settings.json` + `hook-gemini-after-tool` / `hook-gemini-before-agent` | `AfterTool` = block; `BeforeAgent` = context inject. |
+| **Qwen Code** | `.qwen/settings.json` + `hook-qwen-*` | PostToolUse + UserPromptSubmit (Codex-shaped) + Stop (top-level `decision: block`). |
+| **Cursor** | `.cursor/hooks.json` + `hook-cursor-*` + `.cursor/rules/clawtfup.mdc` | 3-event coverage: gate prompt, check each edit, enforce at session end. |
+| **VS Code / Antigravity** | `.github/hooks/clawtfup.json` + wrappers | `hook-codex-*` for PostToolUse / UserPromptSubmit; `hook-vscode-stop` for Stop. |
+| **Kilocode / OpenCode** | `.opencode/plugins/clawtfup-policy.mjs` | JS plugin (`tool.execute.after`): throws on violation; no shell-hook channel. |
+| **Aider** | `--lint-cmd "clawtfup evaluate"` | Native linter integration; non-zero exit + output fed to model after edits. |
+| **Charm Crush** | `CRUSH.md` + `clawtfup cli --provider crush -- …` | No hook API; `CRUSH.md` instructs model; proxy validates workspace on launch. |
+| **Cline CLI** | `CLINE.md` + `clawtfup cli --provider cline -- …` | No hook API; `CLINE.md` instructs model; `evaluate` after headless tasks or in CI. |
+| **CI gate** | `clawtfup evaluate` | `exit 2` fails the job; no `--pretty` needed in CI. |
+| **Stdin patch** | `clawtfup evaluate --diff-file - --pretty < patch` | Evaluate a diff before it touches disk. |
+| **Prefix scan** | `clawtfup evaluate --scan-prefix src/api` | Large monorepo; gate one bounded context. |
 
 ### Hook contract
 
@@ -1195,7 +1285,8 @@ clawtfup exposes the following subcommands:
 | `clawtfup hook-vscode-stop` | VS Code / Antigravity | Stop | 🔴 Blocks session end (`hookSpecificOutput.decision: block`). |
 | `clawtfup cli --provider kilo [-- args…]` | Kilocode / OpenCode | — | 🔌 Transparent proxy for `kilo`. Policy enforced via `.opencode/plugins/clawtfup-policy.mjs` (plugin model, not shell hooks). |
 | `clawtfup cli --provider crush [-- args…]` | Charm Crush | — | 🔀 Transparent proxy for `crush`. No hook channel in published schema — use `evaluate` manually or in project context. |
-| `clawtfup cli --provider NAME [-- args…]` | all | — | 🔀 Transparent proxy — spawns `claude`, `codex`, `gemini`, `qwen`, `kilo`, or `crush` with PTY-aware I/O relay. |
+| `clawtfup cli --provider aider [-- args…]` | Aider | — | 🔀 Transparent proxy for `aider`. Optional `--lint-cmd` with `clawtfup evaluate`; no JSON hooks. |
+| `clawtfup cli --provider cline [-- args…]` | Cline CLI | — | 🔀 Transparent proxy for `cline`. No JSON hooks in public docs — `CLINE.md` + `evaluate` after tasks or in CI. |
 
 ### `clawtfup evaluate`
 
@@ -1319,17 +1410,23 @@ No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
 ### `clawtfup cli --provider NAME`
 
 ```text
-clawtfup cli --provider claude|codex|gemini|qwen|kilo|crush [--workspace DIR] [-- agent-args…]
+clawtfup cli --provider claude|codex|gemini|qwen|kilo|crush|aider|cline [--workspace DIR] [-- agent-args…]
 ```
 
 | Flag | Default | Effect |
 |:-----|:--------|:-------|
-| `--provider NAME` | required | `claude` → `claude`; `codex` → `codex`; `gemini` → `gemini`; `qwen` → `qwen`; `kilo` → `kilo`; `crush` → `crush`. |
+| `--provider NAME` | required | One of `claude`, `codex`, `gemini`, `qwen`, `kilo`, `crush`, `aider`, `cline`. Selects the agent binary to spawn. |
 | `--workspace DIR` | cwd | Workspace root; validated against `.clawtfup/policies/`. |
-| `--claude-bin`, `--codex-bin`, `--gemini-bin`, `--qwen-bin`, `--kilo-bin`, `--crush-bin` | — | Override executable path for that provider. |
+| `--claude-bin`, `--codex-bin`, `--gemini-bin`, `--qwen-bin`, `--kilo-bin`, `--crush-bin`, `--aider-bin`, `--cline-bin` | — | Override executable path for that provider. |
 | `--` | — | Separator; everything after is forwarded verbatim to the agent binary. |
 
-**Binary resolution order:** per-provider `--*-bin` flag → `$CLAWTFUP_CLAUDE_BIN` / `$CLAWTFUP_CODEX_BIN` / `$CLAWTFUP_GEMINI_BIN` / `$CLAWTFUP_QWEN_BIN` / `$CLAWTFUP_KILO_BIN` / `$CLAWTFUP_CRUSH_BIN` → default name on `PATH`.
+**Binary resolution order** (per provider, highest to lowest):
+
+| Priority | Mechanism |
+|:---------|:----------|
+| 1 | `--claude-bin` / `--codex-bin` / `--gemini-bin` / … flag |
+| 2 | `$CLAWTFUP_CLAUDE_BIN` / `$CLAWTFUP_CODEX_BIN` / `$CLAWTFUP_GEMINI_BIN` / `$CLAWTFUP_QWEN_BIN` / `$CLAWTFUP_KILO_BIN` / `$CLAWTFUP_CRUSH_BIN` / `$CLAWTFUP_AIDER_BIN` / `$CLAWTFUP_CLINE_BIN` env var |
+| 3 | Default name (`claude`, `codex`, `gemini`, `qwen`, `kilo`, `crush`, `aider`, `cline`) on `PATH` |
 
 **I/O mode selection:**
 - Stdin is a real TTY (interactive terminal) → PTY mode: opens a pseudo-terminal, syncs window size, forwards `SIGWINCH`, relays raw bytes. Full TUI support.

@@ -10,7 +10,9 @@ _PATCH_DEPRECATION = (
 )
 
 from .agent_proxy import (
+    run_aider_proxy,
     run_claude_proxy,
+    run_cline_proxy,
     run_codex_proxy,
     run_crush_proxy,
     run_gemini_proxy,
@@ -150,14 +152,15 @@ def main(argv: list[str] | None = None) -> int:
         "cli",
         help=(
             "Proxy a provider CLI (Claude Code, OpenAI Codex, Gemini CLI, Qwen Code, Kilocode Kilo, "
-            "Charm Crush): relay I/O only. Project hooks/plugins run `evaluate` (see hook subcommands "
-            "and `.claude/`, `.codex/`, `.gemini/`, `.qwen/`, `.opencode/plugins/`, `.github/hooks/`, "
-            "`.cursor/` samples). Crush has no published hook channel — use `evaluate` in workflow."
+            "Charm Crush, Aider, Cline CLI): relay I/O only. Project hooks/plugins run `evaluate` "
+            "(see hook subcommands and `.claude/`, `.codex/`, `.gemini/`, `.qwen/`, "
+            "`.opencode/plugins/`, `.github/hooks/`, `.cursor/` samples). Crush/Aider/Cline: no "
+            "JSON hooks — use `evaluate` or Aider `--lint-cmd`."
         ),
     )
     agent.add_argument(
         "--provider",
-        choices=["claude", "codex", "gemini", "qwen", "kilo", "crush"],
+        choices=["claude", "codex", "gemini", "qwen", "kilo", "crush", "aider", "cline"],
         required=True,
         help="Agent CLI to spawn (forwards remaining args to that executable).",
     )
@@ -202,6 +205,18 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         help="Path to the crush executable (default: $CLAWTFUP_CRUSH_BIN or 'crush' on PATH).",
+    )
+    agent.add_argument(
+        "--aider-bin",
+        type=str,
+        default=None,
+        help="Path to the aider executable (default: $CLAWTFUP_AIDER_BIN or 'aider' on PATH).",
+    )
+    agent.add_argument(
+        "--cline-bin",
+        type=str,
+        default=None,
+        help="Path to the cline executable (default: $CLAWTFUP_CLINE_BIN or 'cline' on PATH).",
     )
     agent.add_argument(
         "provider_args",
@@ -354,6 +369,10 @@ def _cli_cmd(args: argparse.Namespace) -> int:
         return run_kilo_proxy(raw, workspace, kilo_executable=args.kilo_bin)
     if args.provider == "crush":
         return run_crush_proxy(raw, workspace, crush_executable=args.crush_bin)
+    if args.provider == "aider":
+        return run_aider_proxy(raw, workspace, aider_executable=args.aider_bin)
+    if args.provider == "cline":
+        return run_cline_proxy(raw, workspace, cline_executable=args.cline_bin)
     return 2
 
 
