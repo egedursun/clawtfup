@@ -1,0 +1,39 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "name": "clawtfup-policy-post-tool",
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.qwen/hooks/clawtfup-qwen-post-tool-use.sh\"",
+            "description": "clawtfup: policy after tool use"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "name": "clawtfup-eval-context",
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.qwen/hooks/clawtfup-qwen-user-prompt-submit.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "name": "clawtfup-policy-stop",
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.qwen/hooks/clawtfup-qwen-stop.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

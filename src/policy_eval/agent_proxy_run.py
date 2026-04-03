@@ -175,3 +175,23 @@ def run_gemini_proxy(
         env_bin_var="CLAWTFUP_GEMINI_BIN",
         default_bin="gemini",
     )
+
+
+def run_qwen_proxy(
+    child_argv: list[str],
+    workspace: Path,
+    *,
+    qwen_executable: str | None = None,
+) -> int:
+    """
+    Spawn Qwen Code (``qwen`` or *qwen_executable*) with *child_argv* and relay stdio.
+
+    Policy enforcement uses project ``.qwen/settings.json`` hooks wired to ``hook-qwen-*``.
+    """
+    return _run_agent_cli_proxy(
+        child_argv,
+        workspace,
+        executable=qwen_executable,
+        env_bin_var="CLAWTFUP_QWEN_BIN",
+        default_bin="qwen",
+    )

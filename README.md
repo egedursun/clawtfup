@@ -13,6 +13,7 @@
 [![Claude Code](https://img.shields.io/badge/Claude_Code-hook_ready-0f172a?style=flat-square&logo=anthropic&logoColor=white)](https://claude.ai/code)
 [![Codex](https://img.shields.io/badge/OpenAI_Codex-hook_ready-0f172a?style=flat-square&logo=openai&logoColor=white)](https://openai.com/codex)
 [![Gemini CLI](https://img.shields.io/badge/Gemini_CLI-hook_ready-0f172a?style=flat-square&logo=googlegemini&logoColor=white)](https://github.com/google-gemini/gemini-cli)
+[![Qwen Code](https://img.shields.io/badge/Qwen_Code-hook_ready-0f172a?style=flat-square)](https://github.com/QwenLM/qwen-code)
 [![Cursor](https://img.shields.io/badge/Cursor-hook_ready-0f172a?style=flat-square&logo=cursor&logoColor=white)](https://cursor.com)
 [![VS Code](https://img.shields.io/badge/VS_Code_%2F_Antigravity-hook_ready-0f172a?style=flat-square&logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com)
 
@@ -69,7 +70,7 @@ flowchart LR
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  Agent (Claude Code · Codex · Gemini · Cursor · VS Code · Aider) │
+│  Agent (Claude Code · Codex · Gemini · Qwen Code · Cursor · VS Code · Aider) │
 │                                                                  │
 │  pre-hook      → inject workspace status (UserPromptSubmit /     │
 │                  BeforeAgent / beforeSubmitPrompt)               │
@@ -488,6 +489,169 @@ CLAWTFUP_GEMINI_BIN=/path/to/gemini clawtfup cli --provider gemini -- --help
 
 ---
 
+### ![Qwen Code](https://img.shields.io/badge/Qwen_Code-0f172a?style=flat-square) Qwen Code CLI
+
+[![PostToolUse — enforcement](https://img.shields.io/badge/PostToolUse-enforcement-16a34a?style=flat-square)](https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/hooks.md)
+[![UserPromptSubmit — context](https://img.shields.io/badge/UserPromptSubmit-context-2563eb?style=flat-square)](https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/hooks.md)
+[![Stop — session gate](https://img.shields.io/badge/Stop-session_gate-dc2626?style=flat-square)](https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/hooks.md)
+[![CLI proxy](https://img.shields.io/badge/CLI_proxy-PTY_aware-0f172a?style=flat-square)]()
+
+[Qwen Code](https://github.com/QwenLM/qwen-code) uses the same lifecycle names as Claude Code — **`PostToolUse`**, **`UserPromptSubmit`**, and **`Stop`** — with hook JSON on stdin (`cwd`, `hook_event_name`, …) as documented in [hooks.md](https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/hooks.md). Configure hooks in **`.qwen/settings.json`**. Three events give you full session coverage:
+
+- **`PostToolUse`** → **`hook-qwen-post-tool-use`**: blocks the turn on policy failure. Uses Codex-style response (no `suppressOutput`).
+- **`UserPromptSubmit`** → **`hook-qwen-user-prompt-submit`**: injects workspace status before the model responds; never blocks.
+- **`Stop`** → **`hook-qwen-stop`**: final gate. On failure emits **top-level** `"decision": "block"` + `"reason"` per [Qwen’s documented shape](https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/hooks.md) (distinct from VS Code’s `hookSpecificOutput` wrapper). Guards against retry loops via `stop_hook_active`.
+
+#### Setup
+
+**`.qwen/settings.json`**
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "name": "clawtfup-policy-post-tool",
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.qwen/hooks/clawtfup-qwen-post-tool-use.sh\"",
+            "description": "clawtfup: policy after tool use"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "name": "clawtfup-eval-context",
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.qwen/hooks/clawtfup-qwen-user-prompt-submit.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "name": "clawtfup-policy-stop",
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.qwen/hooks/clawtfup-qwen-stop.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+> **`"matcher": ""`** matches every tool. Narrowing the matcher creates blind spots.
+
+Copy the shell wrappers from [`.qwen/hooks/`](.qwen/hooks/) into your project:
+
+**`.qwen/hooks/clawtfup-qwen-post-tool-use.sh`** (chmod +x)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$ROOT" ]]; then exit 0; fi
+cd "$ROOT" || exit 0
+if [[ -x .venv/bin/python ]]; then
+  exec .venv/bin/python -m policy_eval hook-qwen-post-tool-use
+fi
+if command -v clawtfup >/dev/null 2>&1; then
+  exec clawtfup hook-qwen-post-tool-use
+fi
+exit 0
+```
+
+**`.qwen/hooks/clawtfup-qwen-user-prompt-submit.sh`** (chmod +x)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$ROOT" ]]; then exit 0; fi
+cd "$ROOT" || exit 0
+if [[ -x .venv/bin/python ]]; then
+  exec .venv/bin/python -m policy_eval hook-qwen-user-prompt-submit
+fi
+if command -v clawtfup >/dev/null 2>&1; then
+  exec clawtfup hook-qwen-user-prompt-submit
+fi
+exit 0
+```
+
+**`.qwen/hooks/clawtfup-qwen-stop.sh`** (chmod +x)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$ROOT" ]]; then exit 0; fi
+cd "$ROOT" || exit 0
+if [[ -x .venv/bin/python ]]; then
+  exec .venv/bin/python -m policy_eval hook-qwen-stop
+fi
+if command -v clawtfup >/dev/null 2>&1; then
+  exec clawtfup hook-qwen-stop
+fi
+exit 0
+```
+
+The scripts resolve runtime in order: **project venv** → **global `clawtfup`** on `PATH`. Exit 0 silently when neither is found — safe to commit to repos not yet using clawtfup.
+
+```bash
+chmod +x .qwen/hooks/clawtfup-qwen-post-tool-use.sh \
+         .qwen/hooks/clawtfup-qwen-user-prompt-submit.sh \
+         .qwen/hooks/clawtfup-qwen-stop.sh
+```
+
+#### How the hooks work
+
+**`clawtfup hook-qwen-post-tool-use`** ![PostToolUse](https://img.shields.io/badge/PostToolUse-enforcement-16a34a?style=flat-square)
+
+Fires after every tool call. Reads the Qwen hook event from stdin, evaluates the workspace, and returns:
+
+- **Pass** → empty stdout, exit 0.
+- **Fail** → `{"decision": "block", "hookSpecificOutput": {"additionalContext": "<findings>"}}`.
+
+**`clawtfup hook-qwen-user-prompt-submit`** ![UserPromptSubmit](https://img.shields.io/badge/UserPromptSubmit-context-2563eb?style=flat-square)
+
+Fires before the model responds to each prompt. Injects a one-line workspace status into `additionalContext`. Never blocks.
+
+**`clawtfup hook-qwen-stop`** ![Stop](https://img.shields.io/badge/Stop-session_gate-dc2626?style=flat-square)
+
+Fires when the agent session ends. On failure returns top-level `decision: "block"` + `reason` (Qwen’s documented `Stop` shape — distinct from the `hookSpecificOutput` wrapper used by VS Code). Retry-loop guard: no-ops when `stop_hook_active` is true.
+
+```
+Qwen Code session
+        │
+        ├─ [user submits prompt]  →  hook-qwen-user-prompt-submit  (inject status, never block)
+        │
+        ├─ [model edits a file]   →  hook-qwen-post-tool-use       (block on violation)
+        │
+        └─ [session ends]         →  hook-qwen-stop                (final gate; block if dirty)
+```
+
+#### CLI proxy (transparent agent wrapping) ![PTY](https://img.shields.io/badge/I%2FO-PTY_aware-0f172a?style=flat-square)
+
+```bash
+clawtfup cli --provider qwen -- --help
+```
+
+Spawns the `qwen` binary (from `@qwen-code/qwen-code`, or `$CLAWTFUP_QWEN_BIN`) with PTY relay on an interactive terminal; falls back to pipe relay in non-TTY contexts. Policy enforcement still comes from `.qwen/settings.json` hooks — the proxy only relays I/O.
+
+```bash
+CLAWTFUP_QWEN_BIN=/path/to/qwen clawtfup cli --provider qwen -- --help
+```
+
+---
+
 ### ![Antigravity / VS Code](https://img.shields.io/badge/Antigravity_%2F_VS_Code-0f172a?style=flat-square&logo=visualstudiocode&logoColor=white) Google Antigravity & VS Code agent hooks
 
 [![PostToolUse — enforcement](https://img.shields.io/badge/PostToolUse-enforcement-16a34a?style=flat-square)](https://code.visualstudio.com/docs/copilot/customization/hooks)
@@ -718,6 +882,7 @@ fi
 | **Cursor** | `.cursor/hooks.json` + `hook-cursor-*` commands | Native lifecycle hooks: gate prompts, check every edit, enforce on completion. |
 | **OpenAI Codex** | `clawtfup cli --provider codex -- …` + `.codex/hooks.json` | Transparent proxy plus `hook-codex-*` commands wired like Claude hooks. |
 | **Gemini CLI** | `clawtfup cli --provider gemini -- …` + `.gemini/settings.json` | Transparent proxy plus `hook-gemini-after-tool` / `hook-gemini-before-agent` for `AfterTool` / `BeforeAgent`. |
+| **Qwen Code** | `clawtfup cli --provider qwen -- …` + `.qwen/settings.json` | `hook-qwen-post-tool-use` (PostToolUse block); `hook-qwen-user-prompt-submit` (context inject); `hook-qwen-stop` (Stop → top-level `decision: block`). |
 | **Antigravity / VS Code** | `.github/hooks/clawtfup.json` + wrappers | `hook-codex-*` for `PostToolUse` / `UserPromptSubmit`; `hook-vscode-stop` for `Stop`. |
 
 ### Hook contract
@@ -866,11 +1031,14 @@ clawtfup exposes the following subcommands:
 | `clawtfup hook-codex-user-prompt-submit` | OpenAI Codex | UserPromptSubmit | 🔵 Injects status; never blocks. Also used by VS Code UserPromptSubmit. |
 | `clawtfup hook-gemini-after-tool` | Gemini CLI | AfterTool | 🟢 Blocks on failure (`decision: deny`). |
 | `clawtfup hook-gemini-before-agent` | Gemini CLI | BeforeAgent | 🔵 Injects status; never denies. |
+| `clawtfup hook-qwen-post-tool-use` | Qwen Code | PostToolUse | 🟢 Same as `hook-codex-post-tool-use` (delegates). |
+| `clawtfup hook-qwen-user-prompt-submit` | Qwen Code | UserPromptSubmit | 🔵 Same as `hook-codex-user-prompt-submit` (delegates). |
+| `clawtfup hook-qwen-stop` | Qwen Code | Stop | 🔴 Top-level `decision: block` + `reason` on failure. |
 | `clawtfup hook-cursor-before-submit-prompt` | Cursor | beforeSubmitPrompt | 🟢 Returns `{"continue": false}` + findings on failure; blocks the prompt. |
 | `clawtfup hook-cursor-after-file-edit` | Cursor | afterFileEdit | 🟢 Exit 2 + stderr findings on failure; visible in Output → Hooks. |
 | `clawtfup hook-cursor-stop` | Cursor | stop | 🔴 Exit 2 on failure; marks session failed as a final gate. |
 | `clawtfup hook-vscode-stop` | VS Code / Antigravity | Stop | 🔴 Blocks session end (`hookSpecificOutput.decision: block`). |
-| `clawtfup cli --provider NAME [-- args…]` | all | — | 🔀 Transparent proxy — spawns `claude`, `codex`, or `gemini` with PTY-aware I/O relay. |
+| `clawtfup cli --provider NAME [-- args…]` | all | — | 🔀 Transparent proxy — spawns `claude`, `codex`, `gemini`, or `qwen` with PTY-aware I/O relay. |
 
 ### `clawtfup evaluate`
 
@@ -918,13 +1086,13 @@ No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
 
 ### `clawtfup hook-codex-post-tool-use`
 
-OpenAI Codex equivalent of `hook-post-tool-use`. Reads a Codex `PostToolUse` event from stdin; on failure returns `decision: block` with `additionalContext` (no `suppressOutput` field, per Codex spec). Also handles VS Code `PostToolUse` events — both providers use the same stdin/stdout shape.
+OpenAI Codex equivalent of `hook-post-tool-use`. Reads a Codex `PostToolUse` event from stdin; on failure returns `decision: block` with `additionalContext` (no `suppressOutput` field, per Codex spec). Also handles VS Code `PostToolUse` events — both providers use the same stdin/stdout shape. **`hook-qwen-post-tool-use` delegates here** for Qwen Code.
 
 No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
 
 ### `clawtfup hook-codex-user-prompt-submit`
 
-OpenAI Codex / VS Code equivalent of `hook-user-prompt-submit`. Injects workspace status; never blocks. Also handles VS Code `UserPromptSubmit` and accepts both `hook_event_name` (snake_case) and `hookEventName` (camelCase) in the event envelope.
+OpenAI Codex / VS Code equivalent of `hook-user-prompt-submit`. Injects workspace status; never blocks. Also handles VS Code `UserPromptSubmit` and accepts both `hook_event_name` (snake_case) and `hookEventName` (camelCase) in the event envelope. **`hook-qwen-user-prompt-submit` delegates here** for Qwen Code.
 
 No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
 
@@ -937,6 +1105,24 @@ No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
 ### `clawtfup hook-gemini-before-agent`
 
 Reads a Gemini CLI `BeforeAgent` event from stdin. Injects a compact workspace status into `additionalContext`. Never denies the prompt. Workspace path resolved from the event's `cwd` field.
+
+No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
+
+### `clawtfup hook-qwen-post-tool-use`
+
+[Qwen Code](https://github.com/QwenLM/qwen-code) `PostToolUse` hook. Delegates to the same logic as `hook-codex-post-tool-use` (identical stdout JSON). Wire from `.qwen/settings.json`.
+
+No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
+
+### `clawtfup hook-qwen-user-prompt-submit`
+
+Qwen Code `UserPromptSubmit` hook. Delegates to `hook-codex-user-prompt-submit`.
+
+No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
+
+### `clawtfup hook-qwen-stop`
+
+Qwen Code `Stop` hook. On policy failure returns top-level `"decision": "block"` and `"reason"` (per [Qwen hooks](https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/hooks.md)), not the VS Code `hookSpecificOutput` wrapper. When `stop_hook_active` is true, no-ops (retry guard; shared with `hook-vscode-stop`).
 
 No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
 
@@ -976,17 +1162,17 @@ No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
 ### `clawtfup cli --provider NAME`
 
 ```text
-clawtfup cli --provider claude|codex|gemini [--workspace DIR] [-- agent-args…]
+clawtfup cli --provider claude|codex|gemini|qwen [--workspace DIR] [-- agent-args…]
 ```
 
 | Flag | Default | Effect |
 |:-----|:--------|:-------|
-| `--provider NAME` | required | `claude` → `claude`; `codex` → `codex`; `gemini` → `gemini`. |
+| `--provider NAME` | required | `claude` → `claude`; `codex` → `codex`; `gemini` → `gemini`; `qwen` → `qwen`. |
 | `--workspace DIR` | cwd | Workspace root; validated against `.clawtfup/policies/`. |
-| `--claude-bin`, `--codex-bin`, `--gemini-bin` | — | Override executable path for that provider. |
+| `--claude-bin`, `--codex-bin`, `--gemini-bin`, `--qwen-bin` | — | Override executable path for that provider. |
 | `--` | — | Separator; everything after is forwarded verbatim to the agent binary. |
 
-**Binary resolution order:** per-provider `--*-bin` flag → `$CLAWTFUP_CLAUDE_BIN` / `$CLAWTFUP_CODEX_BIN` / `$CLAWTFUP_GEMINI_BIN` → default name on `PATH`.
+**Binary resolution order:** per-provider `--*-bin` flag → `$CLAWTFUP_CLAUDE_BIN` / `$CLAWTFUP_CODEX_BIN` / `$CLAWTFUP_GEMINI_BIN` / `$CLAWTFUP_QWEN_BIN` → default name on `PATH`.
 
 **I/O mode selection:**
 - Stdin is a real TTY (interactive terminal) → PTY mode: opens a pseudo-terminal, syncs window size, forwards `SIGWINCH`, relays raw bytes. Full TUI support.

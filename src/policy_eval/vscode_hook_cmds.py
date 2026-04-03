@@ -19,13 +19,10 @@ from .agent_proxy_support import (
     format_findings_human,
     run_evaluate_subprocess,
     stdin_hook_event_name,
+    stop_hook_retry_active,
     truncate_hook_context,
 )
 from .defaults import default_policies_dir
-
-
-def _stop_retry_active(event: dict) -> bool:
-    return bool(event.get("stop_hook_active") or event.get("stopHookActive"))
 
 
 def hook_vscode_stop_cmd() -> int:
@@ -41,7 +38,7 @@ def hook_vscode_stop_cmd() -> int:
         event = json.loads(raw)
     except json.JSONDecodeError:
         return 0
-    if _stop_retry_active(event):
+    if stop_hook_retry_active(event):
         return 0
 
     cwd = event.get("cwd")

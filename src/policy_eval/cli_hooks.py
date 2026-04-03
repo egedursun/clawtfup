@@ -99,6 +99,43 @@ def add_hook_subparsers(sub: argparse._SubParsersAction) -> None:
     )
 
     sub.add_parser(
+        "hook-qwen-post-tool-use",
+        formatter_class=rf,
+        help=(
+            "Qwen Code PostToolUse hook: same behavior as `hook-codex-post-tool-use`."
+        ),
+        description=(
+            "Wire from `.qwen/settings.json`. Qwen sends `hook_event_name` and `cwd` on stdin. "
+            "Delegates to the Codex-shaped PostToolUse response (no `suppressOutput`). "
+            "See https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/hooks.md"
+        ),
+    )
+
+    sub.add_parser(
+        "hook-qwen-user-prompt-submit",
+        formatter_class=rf,
+        help=(
+            "Qwen Code UserPromptSubmit hook: same behavior as `hook-codex-user-prompt-submit`."
+        ),
+        description=(
+            "Wire from `.qwen/settings.json`. Injects `hookSpecificOutput.additionalContext` only. "
+            "See Qwen Code hooks documentation."
+        ),
+    )
+
+    sub.add_parser(
+        "hook-qwen-stop",
+        formatter_class=rf,
+        help=(
+            "Qwen Code Stop hook: on evaluate failure emit top-level `decision: block` and `reason`."
+        ),
+        description=(
+            "Qwen expects top-level `decision` / `reason` (not VS Code's `hookSpecificOutput` shape). "
+            "No-ops when `stop_hook_active` is true. See Qwen Code hooks documentation."
+        ),
+    )
+
+    sub.add_parser(
         "hook-cursor-before-submit-prompt",
         formatter_class=rf,
         help=(

@@ -9,10 +9,15 @@ _PATCH_DEPRECATION = (
     "warning: --patch is deprecated; use --diff-file (same meaning).\n"
 )
 
-from .agent_proxy import run_claude_proxy, run_codex_proxy, run_gemini_proxy
+from .agent_proxy import run_claude_proxy, run_codex_proxy, run_gemini_proxy, run_qwen_proxy
 from .claude_hook_cmds import hook_post_tool_use_cmd, hook_user_prompt_submit_cmd
 from .codex_hook_cmds import hook_codex_post_tool_use_cmd, hook_codex_user_prompt_submit_cmd
 from .gemini_hook_cmds import hook_gemini_after_tool_cmd, hook_gemini_before_agent_cmd
+from .qwen_hook_cmds import (
+    hook_qwen_post_tool_use_cmd,
+    hook_qwen_stop_cmd,
+    hook_qwen_user_prompt_submit_cmd,
+)
 from .cursor_hook_cmds import (
     hook_cursor_after_file_edit_cmd,
     hook_cursor_before_submit_prompt_cmd,
@@ -137,14 +142,14 @@ def main(argv: list[str] | None = None) -> int:
     agent = sub.add_parser(
         "cli",
         help=(
-            "Proxy a provider CLI (Claude Code, OpenAI Codex, Gemini CLI): relay I/O only. "
+            "Proxy a provider CLI (Claude Code, OpenAI Codex, Gemini CLI, Qwen Code): relay I/O only. "
             "Project hooks run `evaluate` (see hook subcommands and `.claude/`, `.codex/`, "
-            "`.gemini/`, `.github/hooks/`, `.cursor/` samples)."
+            "`.gemini/`, `.qwen/`, `.github/hooks/`, `.cursor/` samples)."
         ),
     )
     agent.add_argument(
         "--provider",
-        choices=["claude", "codex", "gemini"],
+        choices=["claude", "codex", "gemini", "qwen"],
         required=True,
         help="Agent CLI to spawn (forwards remaining args to that executable).",
     )
@@ -173,6 +178,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Path to the gemini executable (default: $CLAWTFUP_GEMINI_BIN or 'gemini' on PATH).",
     )
     agent.add_argument(
+        "--qwen-bin",
+        type=str,
+        default=None,
+        help="Path to the qwen executable (default: $CLAWTFUP_QWEN_BIN or 'qwen' on PATH).",
+    )
+    agent.add_argument(
         "provider_args",
         nargs=argparse.REMAINDER,
         help="Arguments for the provider; use '--' before flags meant for the provider.",
@@ -196,6 +207,12 @@ def main(argv: list[str] | None = None) -> int:
         return hook_gemini_after_tool_cmd()
     if args.cmd == "hook-gemini-before-agent":
         return hook_gemini_before_agent_cmd()
+    if args.cmd == "hook-qwen-post-tool-use":
+        return hook_qwen_post_tool_use_cmd()
+    if args.cmd == "hook-qwen-user-prompt-submit":
+        return hook_qwen_user_prompt_submit_cmd()
+    if args.cmd == "hook-qwen-stop":
+        return hook_qwen_stop_cmd()
     if args.cmd == "hook-cursor-before-submit-prompt":
         return hook_cursor_before_submit_prompt_cmd()
     if args.cmd == "hook-cursor-after-file-edit":
@@ -311,6 +328,8 @@ def _cli_cmd(args: argparse.Namespace) -> int:
         return run_codex_proxy(raw, workspace, codex_executable=args.codex_bin)
     if args.provider == "gemini":
         return run_gemini_proxy(raw, workspace, gemini_executable=args.gemini_bin)
+    if args.provider == "qwen":
+        return run_qwen_proxy(raw, workspace, qwen_executable=args.qwen_bin)
     return 2
 
 

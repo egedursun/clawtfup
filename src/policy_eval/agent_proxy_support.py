@@ -29,6 +29,11 @@ def stdin_hook_event_name(event: dict, default: str) -> str:
     return default
 
 
+def stop_hook_retry_active(event: dict) -> bool:
+    """True when a Stop hook is already in a retry loop (VS Code, Qwen Code, …)."""
+    return bool(event.get("stop_hook_active") or event.get("stopHookActive"))
+
+
 def format_findings_human(report: dict) -> str:
     lines: list[str] = []
     findings = report.get("findings") or []
