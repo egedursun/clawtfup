@@ -308,15 +308,112 @@ CLAWTFUP_CODEX_BIN=/opt/homebrew/bin/codex clawtfup cli --provider codex -- --he
 
 Codex hooks are experimental and [disabled on Windows](https://developers.openai.com/codex/hooks/) as of current upstream docs.
 
-### Cursor / Aider / custom runners [![shell integration](https://img.shields.io/badge/integration-shell_hook-0f172a?style=flat-square)]()
+### ![Cursor](https://img.shields.io/badge/Cursor-0f172a?style=flat-square&logo=cursor&logoColor=white) Cursor
 
-Any runner that can shell out after a model turn can integrate clawtfup:
+[![Agent Rules — enforcement](https://img.shields.io/badge/Agent_Rules-enforcement-16a34a?style=flat-square)]()
+[![Terminal hook — shell](https://img.shields.io/badge/Terminal_hook-shell-2563eb?style=flat-square)]()
+
+Cursor does not expose a native turn-level hook protocol, so clawtfup integrates through two complementary layers: **Agent Rules** that make the model enforce the gate itself, and an optional **terminal hook script** that catches anything the agent misses or skips.
+
+#### Layer 1 — Agent Rules (`.cursor/rules`)
+
+Cursor injects `.cursor/rules` MDC files into the model's context on every request. A rule that mandates clawtfup turns enforcement into a standing instruction the agent carries into every session — no user reminder needed.
+
+Create **`.cursor/rules/clawtfup.mdc`**:
+
+```markdown
+---
+description: clawtfup policy gate — apply on every coding task
+alwaysApply: true
+---
+
+## Policy gate (clawtfup)
+
+Before marking **any** coding task as complete you must run:
+
+    clawtfup evaluate --pretty
+
+Rules:
+- If the command is not found, stop and tell the user to run `pip install -e .` and ensure OPA is on PATH.
+- If exit code is **0** (`"allow": true`, no error findings) → the task is done.
+- If exit code is **2** → read `findings[]`. Fix **application code** to satisfy each violation. Do **not** weaken or bypass `.clawtfup/` policies. Re-run until the workspace is clean.
+- Never pass `--no-strict` to avoid fixing a violation.
+- Treat `clawtfup evaluate` stdout JSON as the source of truth. Ignore stderr except for fatal errors.
+```
+
+> **`alwaysApply: true`** ensures the rule is active for every chat and Composer session, not just when Cursor infers it is relevant. Omitting this creates blind spots.
+
+#### Layer 2 — Terminal hook script
+
+For scripted workflows or as a backstop when the agent rule is insufficient, wire clawtfup directly into your shell or editor save hooks.
+
+**`.cursor/hooks/clawtfup-post-edit.sh`** (chmod +x)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="${CURSOR_WORKSPACE_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+cd "$ROOT" || exit 0
+if [[ -x .venv/bin/python ]]; then
+  exec .venv/bin/python -m policy_eval evaluate --pretty
+fi
+if command -v clawtfup >/dev/null 2>&1; then
+  exec clawtfup evaluate --pretty
+fi
+exit 0
+```
+
+```bash
+chmod +x .cursor/hooks/clawtfup-post-edit.sh
+```
+
+Run it explicitly after applying edits, or bind it to your editor's on-save trigger:
+
+```bash
+# After applying model edits to disk
+.cursor/hooks/clawtfup-post-edit.sh
+if [ $? -ne 0 ]; then
+  clawtfup evaluate --pretty | jq '.findings[] | {code, message, remediation: .feedback.remediation}'
+fi
+```
+
+#### How the two layers interact
+
+```
+Cursor agent turn (Composer / Chat)
+        │
+        ▼
+Agent Rule: "run clawtfup evaluate --pretty before finishing"
+        │
+        ├── pass (exit 0)  ──▶ agent marks task complete
+        │
+        └── fail (exit 2)  ──▶ agent reads findings[], fixes code, re-runs
+                                (cycle continues until workspace is clean)
+
+        ┊  (backstop)
+        ▼
+clawtfup-post-edit.sh  ──▶ same evaluate call, same exit-code contract
+```
+
+The agent rule handles the autonomous loop. The shell script is your safety net for manual verification, CI integration, or editor save hooks.
+
+#### CI gate
+
+In GitHub Actions or any CI pipeline, the shell script doubles as your pre-merge gate:
+
+```yaml
+- name: Policy gate
+  run: clawtfup evaluate   # no --pretty; exit 2 fails the job
+```
+
+### Aider / custom runners [![shell integration](https://img.shields.io/badge/integration-shell_hook-0f172a?style=flat-square)]()
+
+Any runner that can shell out after a model turn integrates with the same two-line pattern:
 
 ```bash
 # After applying model edits to disk
 clawtfup evaluate --pretty
 if [ $? -ne 0 ]; then
-  # Extract findings and re-prompt
   clawtfup evaluate --pretty | jq '.findings[] | {code, message, remediation: .feedback.remediation}'
 fi
 ```
@@ -330,6 +427,7 @@ fi
 | **Saved diff file** | `clawtfup evaluate --diff-file /tmp/p.patch --pretty` | Diff written to temp file by orchestrator. |
 | **CI gate** | `clawtfup evaluate` (no `--pretty`) | GitHub Actions / pre-merge; exit code drives pass/fail. |
 | **Prefix scan** | `clawtfup evaluate --scan-prefix src/api --pretty` | Large monorepo; gate only the changed bounded context. |
+| **Cursor** | `.cursor/rules/clawtfup.mdc` + `clawtfup-post-edit.sh` | Agent rule enforces the gate; shell script backstops it. |
 | **OpenAI Codex** | `clawtfup cli --provider codex -- …` + `.codex/hooks.json` | Transparent proxy plus `hook-codex-*` commands wired like Claude hooks. |
 
 ### Hook contract
