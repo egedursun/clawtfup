@@ -217,3 +217,25 @@ def run_kilo_proxy(
         env_bin_var="CLAWTFUP_KILO_BIN",
         default_bin="kilo",
     )
+
+
+def run_crush_proxy(
+    child_argv: list[str],
+    workspace: Path,
+    *,
+    crush_executable: str | None = None,
+) -> int:
+    """
+    Spawn Charm Crush (``crush`` or *crush_executable*) with *child_argv* and relay stdio.
+
+    Crush does not expose a documented stdin/JSON hook channel in its published config schema
+    (see https://charm.land/crush.json). Enforce policy with ``clawtfup evaluate --pretty`` in
+    your workflow, skills, or project context files — not via this proxy alone.
+    """
+    return _run_agent_cli_proxy(
+        child_argv,
+        workspace,
+        executable=crush_executable,
+        env_bin_var="CLAWTFUP_CRUSH_BIN",
+        default_bin="crush",
+    )

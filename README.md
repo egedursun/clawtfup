@@ -15,6 +15,7 @@
 [![Gemini CLI](https://img.shields.io/badge/Gemini_CLI-hook_ready-0f172a?style=flat-square&logo=googlegemini&logoColor=white)](https://github.com/google-gemini/gemini-cli)
 [![Qwen Code](https://img.shields.io/badge/Qwen_Code-hook_ready-0f172a?style=flat-square)](https://github.com/QwenLM/qwen-code)
 [![Kilocode](https://img.shields.io/badge/Kilocode-plugin_ready-0f172a?style=flat-square)](https://kilocode.ai/docs/cli)
+[![Crush](https://img.shields.io/badge/Crush_(Charm)-CLI_proxy-0f172a?style=flat-square)](https://github.com/charmbracelet/crush)
 [![Cursor](https://img.shields.io/badge/Cursor-hook_ready-0f172a?style=flat-square&logo=cursor&logoColor=white)](https://cursor.com)
 [![VS Code](https://img.shields.io/badge/VS_Code_%2F_Antigravity-hook_ready-0f172a?style=flat-square&logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com)
 
@@ -71,7 +72,7 @@ flowchart LR
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  Agent (Claude Code · Codex · Gemini · Qwen Code · Kilo · Cursor · VS Code · Aider) │
+│  Agent (Claude Code · Codex · Gemini · Qwen Code · Kilo · Crush · Cursor · VS Code · Aider) │
 │                                                                  │
 │  pre-hook      → inject workspace status (UserPromptSubmit /     │
 │                  BeforeAgent / beforeSubmitPrompt)               │
@@ -746,6 +747,64 @@ CLAWTFUP_KILO_BIN=/path/to/kilo clawtfup cli --provider kilo -- run "Fix the aut
 
 ---
 
+### ![Charm Crush](https://img.shields.io/badge/Charm_Crush-0f172a?style=flat-square) Charm Crush (`crush`)
+
+[![CLI proxy](https://img.shields.io/badge/CLI_proxy-PTY_aware-0f172a?style=flat-square)]()
+[![CRUSH.md](https://img.shields.io/badge/CRUSH.md-context_injection-2563eb?style=flat-square)]()
+[![crush.json schema](https://img.shields.io/badge/crush.json-no_hook_API-64748b?style=flat-square)](https://charm.land/crush.json)
+
+[Crush](https://github.com/charmbracelet/crush) is Charm’s terminal coding agent (`brew install charmbracelet/tap/crush` or `npm i -g @charmland/crush`).
+
+The published [`crush.json` schema](https://charm.land/crush.json) configures models, MCP, LSP, and tools — it does **not** define a stdin/JSON lifecycle hook channel like Claude Code or Qwen. clawtfup does not ship Crush-specific hook shims; enforcement uses two complementary approaches instead.
+
+#### Approach 1 — `CRUSH.md` context injection
+
+Crush loads `CRUSH.md` from the project root as standing instructions for every session (same pattern as `CLAUDE.md` for Claude Code). Create **`CRUSH.md`** to make the policy gate part of every task:
+
+```markdown
+# Policy gate
+
+Before marking any coding task as complete, run:
+
+    clawtfup evaluate --pretty
+
+- Exit **0** → workspace is clean; task is done.
+- Exit **2** → read `findings[]`, fix **application code** to satisfy each
+  violation, re-run until clean.
+- Do not pass `--no-strict` to skip a violation.
+- Do not edit `.clawtfup/policies/` or `.clawtfup/feedback/` to weaken rules
+  unless the user explicitly asks.
+```
+
+Crush reads this on startup and honours it as a standing rule across the entire session. Combine with `AGENTS.md` (which clawtfup also ships) for redundant coverage.
+
+#### Approach 2 — manual gate in workflow
+
+Run `clawtfup evaluate --pretty` from your shell directly after a Crush session ends or at a natural checkpoint:
+
+```bash
+# After crush finishes a task
+clawtfup evaluate --pretty
+# On failure, show the agent what to fix:
+clawtfup evaluate --pretty | jq ‘.findings[] | {code, message, remediation: .feedback.remediation}’
+```
+
+#### CLI proxy (transparent agent wrapping) ![PTY](https://img.shields.io/badge/I%2FO-PTY_aware-0f172a?style=flat-square)
+
+```bash
+clawtfup cli --provider crush -- .
+```
+
+Spawns **`crush`** (or **`$CLAWTFUP_CRUSH_BIN`**) with the same PTY/pipe relay as other providers — full TUI support on an interactive terminal, pipe relay in scripted contexts. The proxy validates `.clawtfup/policies/` exists before spawning and returns the child’s exit code unchanged.
+
+```bash
+CLAWTFUP_CRUSH_BIN=/path/to/crush clawtfup cli --provider crush -- .
+```
+
+> When Charm publishes a documented hook API in `crush.json`, clawtfup will add native hook shims. Until then, `CRUSH.md` + the proxy is the recommended integration.
+
+---
+
 ### ![Antigravity / VS Code](https://img.shields.io/badge/Antigravity_%2F_VS_Code-0f172a?style=flat-square&logo=visualstudiocode&logoColor=white) Google Antigravity & VS Code agent hooks
 
 [![PostToolUse — enforcement](https://img.shields.io/badge/PostToolUse-enforcement-16a34a?style=flat-square)](https://code.visualstudio.com/docs/copilot/customization/hooks)
@@ -978,6 +1037,7 @@ fi
 | **Gemini CLI** | `clawtfup cli --provider gemini -- …` + `.gemini/settings.json` | Transparent proxy plus `hook-gemini-after-tool` / `hook-gemini-before-agent` for `AfterTool` / `BeforeAgent`. |
 | **Qwen Code** | `clawtfup cli --provider qwen -- …` + `.qwen/settings.json` | `hook-qwen-post-tool-use` (PostToolUse block); `hook-qwen-user-prompt-submit` (context inject); `hook-qwen-stop` (Stop → top-level `decision: block`). |
 | **Kilocode / OpenCode** | `clawtfup cli --provider kilo -- …` + `.opencode/plugins/` | JS plugin model (`tool.execute.after`): throws on violation so agent sees findings. No shell-hook channel. |
+| **Charm Crush** | `clawtfup cli --provider crush -- …` | Transparent proxy for `crush`. No published hook API in `crush.json` — use `evaluate` in workflow or context files. |
 | **Antigravity / VS Code** | `.github/hooks/clawtfup.json` + wrappers | `hook-codex-*` for `PostToolUse` / `UserPromptSubmit`; `hook-vscode-stop` for `Stop`. |
 
 ### Hook contract
@@ -1134,7 +1194,8 @@ clawtfup exposes the following subcommands:
 | `clawtfup hook-cursor-stop` | Cursor | stop | 🔴 Exit 2 on failure; marks session failed as a final gate. |
 | `clawtfup hook-vscode-stop` | VS Code / Antigravity | Stop | 🔴 Blocks session end (`hookSpecificOutput.decision: block`). |
 | `clawtfup cli --provider kilo [-- args…]` | Kilocode / OpenCode | — | 🔌 Transparent proxy for `kilo`. Policy enforced via `.opencode/plugins/clawtfup-policy.mjs` (plugin model, not shell hooks). |
-| `clawtfup cli --provider NAME [-- args…]` | all | — | 🔀 Transparent proxy — spawns `claude`, `codex`, `gemini`, `qwen`, or `kilo` with PTY-aware I/O relay. |
+| `clawtfup cli --provider crush [-- args…]` | Charm Crush | — | 🔀 Transparent proxy for `crush`. No hook channel in published schema — use `evaluate` manually or in project context. |
+| `clawtfup cli --provider NAME [-- args…]` | all | — | 🔀 Transparent proxy — spawns `claude`, `codex`, `gemini`, `qwen`, `kilo`, or `crush` with PTY-aware I/O relay. |
 
 ### `clawtfup evaluate`
 
@@ -1258,17 +1319,17 @@ No flags. Exits 0 silently when `.clawtfup/policies/` does not exist.
 ### `clawtfup cli --provider NAME`
 
 ```text
-clawtfup cli --provider claude|codex|gemini|qwen [--workspace DIR] [-- agent-args…]
+clawtfup cli --provider claude|codex|gemini|qwen|kilo|crush [--workspace DIR] [-- agent-args…]
 ```
 
 | Flag | Default | Effect |
 |:-----|:--------|:-------|
-| `--provider NAME` | required | `claude` → `claude`; `codex` → `codex`; `gemini` → `gemini`; `qwen` → `qwen`. |
+| `--provider NAME` | required | `claude` → `claude`; `codex` → `codex`; `gemini` → `gemini`; `qwen` → `qwen`; `kilo` → `kilo`; `crush` → `crush`. |
 | `--workspace DIR` | cwd | Workspace root; validated against `.clawtfup/policies/`. |
-| `--claude-bin`, `--codex-bin`, `--gemini-bin`, `--qwen-bin` | — | Override executable path for that provider. |
+| `--claude-bin`, `--codex-bin`, `--gemini-bin`, `--qwen-bin`, `--kilo-bin`, `--crush-bin` | — | Override executable path for that provider. |
 | `--` | — | Separator; everything after is forwarded verbatim to the agent binary. |
 
-**Binary resolution order:** per-provider `--*-bin` flag → `$CLAWTFUP_CLAUDE_BIN` / `$CLAWTFUP_CODEX_BIN` / `$CLAWTFUP_GEMINI_BIN` / `$CLAWTFUP_QWEN_BIN` → default name on `PATH`.
+**Binary resolution order:** per-provider `--*-bin` flag → `$CLAWTFUP_CLAUDE_BIN` / `$CLAWTFUP_CODEX_BIN` / `$CLAWTFUP_GEMINI_BIN` / `$CLAWTFUP_QWEN_BIN` / `$CLAWTFUP_KILO_BIN` / `$CLAWTFUP_CRUSH_BIN` → default name on `PATH`.
 
 **I/O mode selection:**
 - Stdin is a real TTY (interactive terminal) → PTY mode: opens a pseudo-terminal, syncs window size, forwards `SIGWINCH`, relays raw bytes. Full TUI support.

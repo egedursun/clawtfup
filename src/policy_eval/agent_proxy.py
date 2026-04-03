@@ -6,6 +6,9 @@
 ``.opencode/plugins/*.mjs`` (Kilocode / Kilo CLI and OpenCode — ``tool.execute.after`` plugin), or
 ``.github/hooks/*.json`` (VS Code / Google Antigravity agent hooks) so they run ``evaluate``
 and return a blocking decision when policy fails after edits.
+
+Charm Crush has no published hook channel in ``crush.json`` — use ``evaluate`` in your workflow
+or context files when using ``clawtfup cli --provider crush``.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from __future__ import annotations
 from .agent_proxy_run import (
     run_claude_proxy,
     run_codex_proxy,
+    run_crush_proxy,
     run_gemini_proxy,
     run_kilo_proxy,
     run_qwen_proxy,
@@ -33,5 +37,6 @@ __all__ = [
     "run_gemini_proxy",
     "run_qwen_proxy",
     "run_kilo_proxy",
+    "run_crush_proxy",
     "run_evaluate_subprocess",
 ]

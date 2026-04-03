@@ -12,6 +12,7 @@ _PATCH_DEPRECATION = (
 from .agent_proxy import (
     run_claude_proxy,
     run_codex_proxy,
+    run_crush_proxy,
     run_gemini_proxy,
     run_kilo_proxy,
     run_qwen_proxy,
@@ -148,15 +149,15 @@ def main(argv: list[str] | None = None) -> int:
     agent = sub.add_parser(
         "cli",
         help=(
-            "Proxy a provider CLI (Claude Code, OpenAI Codex, Gemini CLI, Qwen Code, Kilocode Kilo): "
-            "relay I/O only. Project hooks/plugins run `evaluate` (see hook subcommands and "
-            "`.claude/`, `.codex/`, `.gemini/`, `.qwen/`, `.opencode/plugins/`, `.github/hooks/`, "
-            "`.cursor/` samples)."
+            "Proxy a provider CLI (Claude Code, OpenAI Codex, Gemini CLI, Qwen Code, Kilocode Kilo, "
+            "Charm Crush): relay I/O only. Project hooks/plugins run `evaluate` (see hook subcommands "
+            "and `.claude/`, `.codex/`, `.gemini/`, `.qwen/`, `.opencode/plugins/`, `.github/hooks/`, "
+            "`.cursor/` samples). Crush has no published hook channel — use `evaluate` in workflow."
         ),
     )
     agent.add_argument(
         "--provider",
-        choices=["claude", "codex", "gemini", "qwen", "kilo"],
+        choices=["claude", "codex", "gemini", "qwen", "kilo", "crush"],
         required=True,
         help="Agent CLI to spawn (forwards remaining args to that executable).",
     )
@@ -195,6 +196,12 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         help="Path to the kilo executable (default: $CLAWTFUP_KILO_BIN or 'kilo' on PATH).",
+    )
+    agent.add_argument(
+        "--crush-bin",
+        type=str,
+        default=None,
+        help="Path to the crush executable (default: $CLAWTFUP_CRUSH_BIN or 'crush' on PATH).",
     )
     agent.add_argument(
         "provider_args",
@@ -345,6 +352,8 @@ def _cli_cmd(args: argparse.Namespace) -> int:
         return run_qwen_proxy(raw, workspace, qwen_executable=args.qwen_bin)
     if args.provider == "kilo":
         return run_kilo_proxy(raw, workspace, kilo_executable=args.kilo_bin)
+    if args.provider == "crush":
+        return run_crush_proxy(raw, workspace, crush_executable=args.crush_bin)
     return 2
 
 
